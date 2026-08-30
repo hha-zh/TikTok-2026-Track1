@@ -5,11 +5,16 @@ Update at the end of every item, in the same commit.
 
 ## Where we are
 
-- Branch `feature/runtime-governor`, 12 commits ahead of the starter baseline.
-- `npm run check` green — **164 tests, 18 files**, typecheck and both builds pass.
-  Verified over three consecutive runs; the launcher flake is fixed.
-- **Not started:** Tier 3 (negative-test sweep, VECTORS.md, measurement, hash
-  chain) and Tier 4 (run console, reproducibility, README).
+- Branch `feature/runtime-governor`, pushed and in sync with origin.
+- `npm run check` green — **182 tests, 19 files**, typecheck and both builds pass.
+  The launcher flake is fixed (verified 8/8 plus three full runs).
+- Hard Governance is complete and reachable from the real production path. Per
+  the project boundary, do not expand it further without a concrete
+  verification bug.
+- **Adaptive Runtime started.** Pure core landed: TaskGraph, CandidateBuilder,
+  Router. Not yet built: ContextBroker, ExecutionEngine, Todo demo graph.
+- **Not started:** negative-test sweep, VECTORS.md, measurement, Run Inspector,
+  README, reproducibility.
 
 ## Item status
 
@@ -67,9 +72,37 @@ See [BACKLOG.md](BACKLOG.md). Blocking ones:
 - **Docs describe the middleware-free starter kit** and contradict what the
   branch now does.
 
+## Adaptive Runtime — the boundary that must hold
+
+    Hard Governance defines the legal execution space.
+    Adaptive Runtime chooses only inside it.
+
+`CandidateBuilder` marks each placement legal or not using the two existing
+functions in their designed roles — `authorize()` for capacity, then
+`deriveChildEnvelope()` for scope, in that order. The `Router` ranks only what
+survived and reports denials verbatim.
+
+**There is no second authorization system and there must not be one.** If
+`router.ts` ever needs to reason about resources, actions or ancestry to decide
+whether something is permitted, stop and report rather than adding it.
+
+| piece | state |
+| --- | --- |
+| TaskGraph (validate, readiness, cycles) | done |
+| CandidateBuilder (REUSE_CURRENT / DELEGATE_SPECIALIST) | done |
+| Router (DIRECT / SERIAL / PARALLEL, RUN / DEGRADE / DEFER / SKIP / BLOCKED) | done |
+| ContextBroker | not started |
+| ExecutionEngine | not started |
+| Todo TaskGraph + integrated demo | not started |
+
 ## Next action
 
-**Item 19 — run console**, or **item 15 — the negative-test sweep**. The console
-is the higher demo risk: all three moments now work end to end at the API level
-but there is nothing on screen. Everything it needs is already a ledger query —
-`budgetView`, `provenanceView`, `eventView` in `middleware/evidence/views.ts`.
+**ExecutionEngine** — drive a TaskGraph round by round: build candidates for the
+ready set, route them, execute the assignments (reuse inline, delegate via the
+existing `DelegatedAgentLauncher`), record real usage, then re-route with the
+updated budget. It is the piece that turns the pure core into something
+demonstrable, and it needs no new governance surface.
+
+The other open front is evidence: the Run Inspector has nothing on screen yet,
+and everything it needs is already a ledger query — `budgetView`,
+`provenanceView`, `eventView` in `middleware/evidence/views.ts`.

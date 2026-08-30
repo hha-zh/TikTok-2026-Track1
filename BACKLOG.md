@@ -21,3 +21,9 @@ One line per finding. Decided at checkpoints, not implemented mid-stream.
 - Callback target is `host.docker.internal:3000`; `127.0.0.1` fails inside the container.
 - `curl` is absent from the runtime image — trusted-tool instructions must use `node -e "fetch(...)"`.
 - Protected resources (`payments/*`, `sec/INC-42`) exist only behind `/api/resources/*` and must never be written to a workspace.
+
+## Adaptive Runtime notes
+
+- `estimatedTokens` on a TaskNode is caller-supplied and unvalidated. The Router uses it for feasibility only; real accounting still comes from `tokens_consumed` after a call returns. Do not claim pre-reservation.
+- Router `DEFER` on a required-but-unaffordable node assumes estimates are pessimistic and real usage may leave room. If estimates prove optimistic this becomes a livelock; the ExecutionEngine needs a defer ceiling.
+- `CandidateBuilder` derives a throwaway envelope with probe ids to test scope feasibility. The real envelope is minted by `DelegationService` at execution time; the probe is discarded and never persisted.
