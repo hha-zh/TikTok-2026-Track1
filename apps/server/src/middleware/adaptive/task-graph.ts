@@ -25,6 +25,15 @@ export interface TaskRoutingHints {
   expectedUtilityGain?: number | undefined;
   /** Declared token estimate of what delegating would cost. Not measured. */
   expectedIncrementalCost?: number | undefined;
+  /**
+   * Declared preference for executing this task under a narrower principal.
+   *
+   * SOFT. "preferred" never makes REUSE hard-illegal; it only adds a reason to
+   * choose an already-legal narrower candidate. Hard security truth stays in
+   * authorize(), constructive attenuation, revocation and lifecycle - a routing
+   * hint must never become a second authorization system.
+   */
+  isolationPreference?: "none" | "preferred" | undefined;
 }
 
 export interface TaskSpec {

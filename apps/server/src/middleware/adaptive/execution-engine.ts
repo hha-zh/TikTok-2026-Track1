@@ -340,6 +340,7 @@ export class ExecutionEngine {
             principal: identity.principal,
             state,
             now: this.now(),
+            parallelCapacity: this.policy.parallelCapacity,
             ...(this.dependencies.executionPolicy
               ? { policy: this.dependencies.executionPolicy }
               : {}),
@@ -359,18 +360,62 @@ export class ExecutionEngine {
       for (const node of ready) {
         await this.record(identity, "task_ready", { taskId: node.id });
       }
+      const runPressure =
+        state.runState.maxTokens > 0
+          ? Math.min(
+              1,
+              Math.max(
+                0,
+                1 - (state.runState.maxTokens - state.runState.tokensUsed) /
+                  state.runState.maxTokens,
+              ),
+            )
+          : 1;
+      const candidatesByTask = new Map(
+        ready.map((node) => [
+          node.id,
+          buildCandidates(node, {
+            principal: identity.principal,
+            state,
+            now: this.now(),
+            parallelCapacity: this.policy.parallelCapacity,
+            ...(this.dependencies.executionPolicy
+              ? { policy: this.dependencies.executionPolicy }
+              : {}),
+          }),
+        ]),
+      );
       for (const assignment of plan.assignments) {
         const node = graph.nodes.find((item) => item.id === assignment.nodeId);
+        const built = candidatesByTask.get(assignment.nodeId) ?? [];
         await this.record(identity, "routing_decision", {
           taskId: assignment.nodeId,
           disposition: assignment.disposition,
           placement: assignment.placement,
           declaredUtilityGain: node?.hints?.expectedUtilityGain ?? null,
           declaredIncrementalCost: node?.hints?.expectedIncrementalCost ?? null,
+          declaredIsolationPreference: node?.hints?.isolationPreference ?? null,
+          authorityIsolationGain: assignment.authorityIsolationGain,
           delegationValue: assignment.delegationValue,
           delegationThreshold: assignment.delegationThreshold,
+          runPressure,
           shape: plan.shape,
           wave: assignment.wave,
+          candidates: built.map((candidate) => ({
+            placement: candidate.placement,
+            authorityLegal: candidate.authority.legal,
+            authorityReason: candidate.authority.reason,
+            budgetAffordable: candidate.budget.affordable,
+            budgetReason: candidate.budget.reason,
+            structurallyNarrower: candidate.authority.structurallyNarrower,
+            feasible: candidate.feasible,
+            effectiveResources: candidate.authority.effectiveResources,
+            effectiveActions: candidate.authority.effectiveActions,
+            estimatedTokens: candidate.budget.estimatedTokens,
+            effectiveTokensRemaining: candidate.budget.effectiveTokensRemaining,
+            childSlotsRemaining: candidate.budget.childSlotsRemaining,
+            depthRemaining: candidate.budget.depthRemaining,
+          })),
         });
         if (assignment.disposition === "DEGRADE") {
           await this.record(identity, "runtime_degraded", {

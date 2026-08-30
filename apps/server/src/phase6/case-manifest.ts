@@ -356,9 +356,103 @@ export const ADAPTIVE_RUNTIME_CASES: CaseRecord[] = [
   },
 ];
 
+// ---------------------------------------------------------------------------
+// Authority × Budget interaction
+// ---------------------------------------------------------------------------
+
+/**
+ * BACKEND VERIFICATION CASES.
+ *
+ * These are not the demo language. The scenarios an operator sees are concrete
+ * - "Todo with a relaxed budget", "a delegate-only incident slice" - and the AB
+ * cases sit underneath them as deterministic proof.
+ */
+export const AUTHORITY_BUDGET_CASES: CaseRecord[] = [
+  {
+    id: "AB-01",
+    claim:
+      "Both placements authorized and affordable, declared benefit clears the " +
+      "threshold: agency expands.",
+    evidence: [
+      "authority-budget.test.ts > AB-01 — Todo, relaxed budget",
+      "todo-run.test.ts > delegates both planners and runs them in one parallel wave",
+    ],
+    expected: "DELEGATE_SPECIALIST, PARALLEL",
+    events: ["routing_decision"],
+    level: "e2e",
+    status: "PROVEN",
+  },
+  {
+    id: "AB-02",
+    claim:
+      "Same graph, same authority, same hints; only runtime budget changes, so " +
+      "the extra agency stops being worth its cost.",
+    evidence: [
+      "authority-budget.test.ts > AB-02 — the same Todo graph under budget pressure",
+      "todo-run.test.ts > changes topology on the same graph",
+    ],
+    expected: "REUSE_CURRENT, SERIAL, optional reviewer SKIPped",
+    events: ["routing_decision", "task_skipped"],
+    level: "e2e",
+    status: "PROVEN",
+  },
+  {
+    id: "AB-03",
+    claim: "Authority may force topology expansion.",
+    evidence: ["authority-budget.test.ts > AB-03 — authority forces topology expansion"],
+    expected:
+      "REUSE denied NOT_EXERCISABLE_DELEGATE_ONLY while affordable; DELEGATE selected",
+    events: ["routing_decision"],
+    level: "integration",
+    status: "PROVEN",
+  },
+  {
+    id: "AB-04",
+    claim: "Permission does not imply affordability.",
+    evidence: [
+      "authority-budget.test.ts > blocks when child capacity is spent",
+      "authority-budget.test.ts > terminates without reuse when the only legal topology cannot be afforded",
+    ],
+    expected: "BLOCKED or DEFER_CEILING; never a fallback to the illegal placement",
+    events: ["routing_decision", "task_deferred", "task_failed"],
+    level: "integration",
+    status: "PROVEN",
+  },
+  {
+    id: "AB-05",
+    claim: "Affordability cannot create permission.",
+    evidence: ["authority-budget.test.ts > AB-05 — affordability cannot create permission"],
+    expected: "DELEGATE denied CHILD_EXCEEDS_PARENT at any budget; REUSE selected",
+    events: ["routing_decision"],
+    level: "integration",
+    status: "PROVEN",
+  },
+  {
+    id: "AB-06",
+    claim: "Revocation overrides budget, utility and isolation preference alike.",
+    evidence: ["authority-budget.test.ts > AB-06 — revocation overrides budget"],
+    expected: "BLOCKED with PARENT_GRANT_REVOKED, isolation gain 0",
+    events: ["routing_decision", "task_failed"],
+    level: "integration",
+    status: "PROVEN",
+  },
+  {
+    id: "AB-07",
+    claim:
+      "A DECLARED isolation preference may tip an already-legal, already-affordable " +
+      "choice toward the structurally narrower principal, and never makes reuse illegal.",
+    evidence: ["authority-budget.test.ts > AB-07 — declared isolation preference (soft)"],
+    expected: "REUSE without the hint; DELEGATE with it; REUSE stays AUTHORIZED either way",
+    events: ["routing_decision"],
+    level: "unit",
+    status: "PROVEN",
+  },
+];
+
 export const ALL_CASES: CaseRecord[] = [
   ...HARD_GOVERNANCE_CASES,
   ...ADAPTIVE_RUNTIME_CASES,
+  ...AUTHORITY_BUDGET_CASES,
 ];
 
 /** The boundaries HG-14 claims complete mediation over. */

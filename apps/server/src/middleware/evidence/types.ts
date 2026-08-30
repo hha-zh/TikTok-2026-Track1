@@ -101,13 +101,41 @@ export interface GovernanceEventPayloadMap {
     taskId: string;
     disposition: string;
     placement: string | null;
-    /** Author-declared hints, echoed for the Inspector. Never measured. */
+    /** DECLARED hints, echoed for later explanation. Never measured. */
     declaredUtilityGain: number | null;
     declaredIncrementalCost: number | null;
+    declaredIsolationPreference: string | null;
+    /** DECLARED/STRUCTURAL. Zero unless isolation genuinely applies. */
+    authorityIsolationGain: number | null;
+    /** DERIVED. */
     delegationValue: number | null;
     delegationThreshold: number | null;
+    runPressure: number | null;
     shape: string;
     wave: number | null;
+    /**
+     * Both axes for both placements.
+     *
+     * Enough that one routing decision can later be explained without
+     * reconstructing it from unrelated events - and specifically enough to
+     * distinguish "authorized but unaffordable" from "not authorized".
+     * Resource and action IDS only; no values, no prompts, no content.
+     */
+    candidates: {
+      placement: string;
+      authorityLegal: boolean;
+      authorityReason: string;
+      budgetAffordable: boolean;
+      budgetReason: string;
+      structurallyNarrower: boolean;
+      feasible: boolean;
+      effectiveResources: string[];
+      effectiveActions: string[];
+      estimatedTokens: number;
+      effectiveTokensRemaining: number;
+      childSlotsRemaining: number;
+      depthRemaining: number;
+    }[];
   };
   invocation_started: {
     invocationId: string;

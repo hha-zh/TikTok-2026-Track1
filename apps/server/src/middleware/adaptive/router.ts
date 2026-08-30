@@ -45,6 +45,12 @@ export interface RouterPolicy {
   parallelHeadroom: number;
   /** Guards the divide when a task declares zero incremental cost. */
   epsilon: number;
+  /**
+   * Weight added to the delegation score when a task DECLARES an isolation
+   * preference AND the delegated scope is structurally narrower AND delegation
+   * is already hard-legal. Zero in every other case.
+   */
+  isolationBonus: number;
 }
 
 export const DEFAULT_ROUTER_POLICY: RouterPolicy = {
@@ -52,6 +58,7 @@ export const DEFAULT_ROUTER_POLICY: RouterPolicy = {
   pressureWeight: 2,
   parallelHeadroom: 0.75,
   epsilon: 0.01,
+  isolationBonus: 0.25,
 };
 
 export interface Assignment {
@@ -65,8 +72,27 @@ export interface Assignment {
   note: string;
   delegationValue: number | null;
   delegationThreshold: number | null;
+  /** DECLARED hint contribution. Zero unless isolation genuinely applies. */
+  authorityIsolationGain: number | null;
+  /**
+   * Both axes for both placements, so a refusal is never flattened into
+   * "unavailable" and an operator does not have to reconstruct why from
+   * unrelated events.
+   */
+  candidateViews: CandidateAxes[];
   /** Index of the wave this task runs in. Null unless it runs. */
   wave: number | null;
+}
+
+/** One placement's two-axis summary, for evidence and later explanation. */
+export interface CandidateAxes {
+  placement: Placement;
+  authorityLegal: boolean;
+  authorityReason: ReasonCode;
+  budgetAffordable: boolean;
+  budgetReason: string;
+  structurallyNarrower: boolean;
+  feasible: boolean;
 }
 
 export interface RoutingWave {
@@ -127,12 +153,28 @@ function clamp01(value: number): number {
  * Cost is a fraction of the EFFECTIVE budget — what the work can really draw
  * on. Both inputs are declared by the graph author, never measured.
  */
+export function authorityIsolationGain(
+  node: TaskSpec,
+  delegateCandidate: Candidate | undefined,
+  policy: RouterPolicy = DEFAULT_ROUTER_POLICY,
+): number {
+  // All three must hold. A declared preference alone buys nothing, and this
+  // can never make an illegal candidate attractive.
+  if (node.hints?.isolationPreference !== "preferred") return 0;
+  if (delegateCandidate?.authority.legal !== true) return 0;
+  if (delegateCandidate.authority.structurallyNarrower !== true) return 0;
+  return policy.isolationBonus;
+}
+
 export function delegationValue(
   node: TaskSpec,
   effectiveBudgetRemaining: number,
   policy: RouterPolicy = DEFAULT_ROUTER_POLICY,
+  delegateCandidate?: Candidate | undefined,
 ): number {
-  const gain = node.hints?.expectedUtilityGain ?? 0;
+  const declaredGain = node.hints?.expectedUtilityGain ?? 0;
+  const isolationGain = authorityIsolationGain(node, delegateCandidate, policy);
+  const gain = declaredGain + isolationGain;
   if (gain <= 0) return 0;
   const cost = node.hints?.expectedIncrementalCost ?? node.estimatedTokens;
   const costFraction = cost / Math.max(1, effectiveBudgetRemaining);
@@ -165,6 +207,39 @@ function candidateFor(
 
 function reportableDenial(candidates: Candidate[]): Candidate | undefined {
   return candidateFor(candidates, "REUSE_CURRENT") ?? candidates[0];
+}
+
+/** Both axes for both placements, carried on every assignment. */
+function axesOf(candidates: Candidate[]): CandidateAxes[] {
+  return candidates.map((candidate) => ({
+    placement: candidate.placement,
+    authorityLegal: candidate.authority.legal,
+    authorityReason: candidate.authority.reason,
+    budgetAffordable: candidate.budget.affordable,
+    budgetReason: candidate.budget.reason,
+    structurallyNarrower: candidate.authority.structurallyNarrower,
+    feasible: candidate.feasible,
+  }));
+}
+
+/**
+ * Why nothing could run, on both axes.
+ *
+ * A candidate that is legal but unaffordable and one that is affordable but
+ * illegal are different situations, and flattening them into "unavailable"
+ * throws away exactly the information an operator needs.
+ */
+function infeasibilityNote(candidates: Candidate[]): string {
+  return candidates
+    .map(
+      (candidate) =>
+        `${candidate.placement}: authority ${
+          candidate.authority.legal ? "legal" : candidate.authority.reason
+        }, budget ${
+          candidate.budget.affordable ? "affordable" : candidate.budget.reason
+        }`,
+    )
+    .join("; ");
 }
 
 interface RunItem {
@@ -218,33 +293,58 @@ export function route(inputs: RoutingInputs): RoutingPlan {
   for (const { node, candidates } of inputs.entries) {
     const reuse = candidateFor(candidates, "REUSE_CURRENT");
     const delegate = candidateFor(candidates, "DELEGATE_SPECIALIST");
-    const reuseLegal = reuse?.legal === true;
-    const delegateLegal = delegate?.legal === true;
+    const views = axesOf(candidates);
+    const isolationGain = authorityIsolationGain(node, delegate, policy);
+    // Feasible = Authorized AND Affordable. Only feasible candidates may be
+    // soft-ranked: spare budget never creates permission, and permission never
+    // creates capacity.
+    const reuseFeasible = reuse?.feasible === true;
+    const delegateFeasible = delegate?.feasible === true;
 
-    if (!reuseLegal && !delegateLegal) {
+    if (!reuseFeasible && !delegateFeasible) {
+      const anyLegal = candidates.some((candidate) => candidate.authority.legal);
       const reason = reportableDenial(candidates)?.reason ?? "RESOURCE_NOT_GRANTED";
       const base = {
         nodeId: node.id,
         placement: null,
         estimatedTokens: node.estimatedTokens,
-        governanceReason: reason,
+        // Only a genuine authority denial carries a hard ReasonCode. When the
+        // authority axis was fine, this stays null and the note carries the
+        // capacity explanation as typed runtime metadata.
+        governanceReason: anyLegal ? null : reason,
         delegationValue: null,
         delegationThreshold: null,
+        authorityIsolationGain: isolationGain,
+        candidateViews: views,
         wave: null,
       };
+      // Token affordability is an ESTIMATE; expansion capacity is a fact.
+      // When every authority was legal and the only obstacle is a pessimistic
+      // token estimate, the task waits for real usage under the engine's defer
+      // ceiling. A spent child slot or delegation depth cannot change, so that
+      // blocks immediately.
+      const onlyTokenEstimate =
+        anyLegal &&
+        candidates.every(
+          (candidate) =>
+            !candidate.authority.legal ||
+            candidate.budget.reason === "TOKENS_EXHAUSTED",
+        );
+      const note =
+        (anyLegal
+          ? onlyTokenEstimate
+            ? "authorized, but the estimate does not fit the remaining budget"
+            : "no feasible placement: authorized but expansion capacity is exhausted"
+          : "no feasible placement: not authorized") +
+        " — " +
+        infeasibilityNote(candidates);
       if (node.optional) {
-        assignments.push({
-          ...base,
-          disposition: "SKIP",
-          note: "optional task dropped: no permitted placement",
-        });
+        assignments.push({ ...base, disposition: "SKIP", note });
+      } else if (onlyTokenEstimate) {
+        assignments.push({ ...base, disposition: "DEFER", note });
       } else {
         blocked = true;
-        assignments.push({
-          ...base,
-          disposition: "BLOCKED",
-          note: "required task has no permitted placement",
-        });
+        assignments.push({ ...base, disposition: "BLOCKED", note });
       }
       continue;
     }
@@ -255,8 +355,8 @@ export function route(inputs: RoutingInputs): RoutingPlan {
     let value: number | null = null;
     let threshold: number | null = null;
 
-    if (reuseLegal && delegateLegal) {
-      value = delegationValue(node, budget, policy);
+    if (reuseFeasible && delegateFeasible) {
+      value = delegationValue(node, budget, policy, delegate);
       threshold = delegationThreshold(
         inputs.runBudgetRemaining,
         inputs.runCapTokens,
@@ -275,25 +375,33 @@ export function route(inputs: RoutingInputs): RoutingPlan {
             ? `declared benefit ${value.toFixed(2)} below threshold ${threshold.toFixed(2)}`
             : "no declared benefit to extra agency";
       }
-    } else if (reuseLegal) {
+    } else if (reuseFeasible) {
       placement = "REUSE_CURRENT";
-      note = "only the current principal may perform this";
+      note =
+        delegate?.authority.legal === true
+          ? "delegation was authorized but not affordable"
+          : "only the current principal may perform this";
     } else {
       placement = "DELEGATE_SPECIALIST";
-      note = "the current principal may cause this but not perform it";
+      note =
+        reuse?.authority.legal === true
+          ? "reuse was authorized but not affordable"
+          : "the current principal may cause this but not perform it";
     }
 
     if (placement === "DELEGATE_SPECIALIST" && slots <= 0) {
-      if (!reuseLegal) {
+      if (!reuseFeasible) {
         assignments.push({
           nodeId: node.id,
           disposition: "DEFER",
           placement: null,
           estimatedTokens: node.estimatedTokens,
           governanceReason: null,
-          note: "no child slots remaining and reuse is not permitted",
+          note: "no child slots remaining and reuse is not feasible",
           delegationValue: value,
           delegationThreshold: threshold,
+          authorityIsolationGain: isolationGain,
+          candidateViews: views,
           wave: null,
         });
         continue;
@@ -310,6 +418,8 @@ export function route(inputs: RoutingInputs): RoutingPlan {
         governanceReason: null,
         delegationValue: value,
         delegationThreshold: threshold,
+        authorityIsolationGain: isolationGain,
+        candidateViews: views,
         wave: null,
       };
       if (node.optional) {
@@ -348,6 +458,8 @@ export function route(inputs: RoutingInputs): RoutingPlan {
       note,
       delegationValue: value,
       delegationThreshold: threshold,
+      authorityIsolationGain: isolationGain,
+      candidateViews: views,
       wave: null,
     });
   }
