@@ -23,7 +23,14 @@ import {
   feasibleCandidates,
   isStructurallyNarrower,
 } from "../middleware/adaptive/candidates.js";
-import { route, type RoutingInputs } from "../middleware/adaptive/router.js";
+import {
+  DEFAULT_ROUTER_POLICY,
+  delegationThreshold,
+  delegationValue,
+  route,
+  type RoutingInputs,
+} from "../middleware/adaptive/router.js";
+import { constraintAxisFor } from "../middleware/adaptive/constraint-axis.js";
 import { task, type TaskSpec } from "../middleware/adaptive/task-graph.js";
 import {
   RESOURCE_AUDIT,
@@ -234,6 +241,112 @@ describe("Authority and Budget are peer views on every candidate", () => {
         state.envelope,
       ),
     ).toBe(false);
+  });
+});
+
+describe("Intrinsic value is separate from runtime pressure", () => {
+  const planner = task({
+    id: "ui_plan",
+    resources: [],
+    actions: ["model:invoke"],
+    estimatedTokens: 400,
+    hints: { expectedUtilityGain: 0.45, expectedIncrementalCost: 300 },
+  });
+
+  it("keeps the same intrinsic value across relaxed and pressured runs", () => {
+    // The task did not change. Only the runtime state did. Budget pressure
+    // must therefore not suppress delegation twice - once by shrinking the
+    // value and again by raising the bar.
+    const relaxed = delegationValue(planner);
+    const pressured = delegationValue(planner);
+    expect(relaxed).toBe(pressured);
+    expect(relaxed).toBeGreaterThan(0);
+  });
+
+  it("moves only the threshold with run pressure", () => {
+    const relaxed = delegationThreshold(12_000, 12_000);
+    const pressured = delegationThreshold(1_500, 12_000);
+    expect(relaxed).toBe(DEFAULT_ROUTER_POLICY.baseThreshold);
+    expect(pressured).toBeGreaterThan(relaxed);
+    // And the same unchanged value lands on opposite sides of the two bars.
+    const value = delegationValue(planner);
+    expect(value).toBeGreaterThanOrEqual(relaxed);
+    expect(value).toBeLessThan(pressured);
+  });
+
+  it("does not vary with how much budget happens to remain", () => {
+    // Nothing in the value formula reads remaining budget, so there is no
+    // argument through which it could.
+    expect(delegationValue(planner, DEFAULT_ROUTER_POLICY)).toBe(
+      delegationValue(planner, { ...DEFAULT_ROUTER_POLICY }),
+    );
+  });
+});
+
+describe("Explanatory constraint axis never changes a verdict", () => {
+  it("classifies capacity as EXECUTION_HORIZON while keeping the hard reason", async () => {
+    const { state, identity } = await harness({ childrenUsed: 2 });
+    const candidates = candidatesFor(auditTask(), state, identity.principal);
+    const delegate = candidates.find((item) => item.placement === "DELEGATE_SPECIALIST");
+
+    // The verdict from authorize() is untouched and still carried.
+    expect(delegate?.authority.legal).toBe(false);
+    expect(delegate?.authority.reason).toBe("MAX_CHILDREN_EXCEEDED");
+    // The axis explains it differently without falsifying it.
+    expect(delegate?.authority.constraintAxis).toBe("EXECUTION_HORIZON");
+  });
+
+  it("keeps scope, lifecycle and accounting on their own axes", () => {
+    expect(constraintAxisFor("NOT_EXERCISABLE_DELEGATE_ONLY")).toBe("AUTHORITY_SCOPE");
+    expect(constraintAxisFor("CHILD_EXCEEDS_PARENT")).toBe("AUTHORITY_SCOPE");
+    expect(constraintAxisFor("DELEGATION_CEILING_REACHED")).toBe("EXECUTION_HORIZON");
+    expect(constraintAxisFor("PARENT_GRANT_REVOKED")).toBe("LIFECYCLE");
+    expect(constraintAxisFor("BUDGET_EXCEEDED")).toBe("BUDGET_ACCOUNTING");
+    expect(constraintAxisFor("AUTHORIZED")).toBe("NONE");
+  });
+});
+
+describe("Hard capacity is separate from a declared estimate", () => {
+  it("reports an oversized estimate as a shortfall, not as exhaustion", async () => {
+    const { state, identity } = await harness();
+    const node = task({
+      id: "expensive",
+      resources: [],
+      actions: ["model:invoke"],
+      estimatedTokens: 99_999,
+    });
+    const [reuse] = candidatesFor(node, state, identity.principal);
+
+    // Nothing is actually exhausted: the run and grant budgets are wide open.
+    expect(reuse?.budget.runBudgetOpen).toBe(true);
+    expect(reuse?.budget.grantBudgetOpen).toBe(true);
+    expect(reuse?.budget.hardCapacityAvailable).toBe(true);
+    // Only the declared guess does not fit.
+    expect(reuse?.budget.planningFit).toBe("ESTIMATED_SHORTFALL");
+    expect(reuse?.hardEligible).toBe(true);
+    expect(reuse?.routableNow).toBe(false);
+
+    // So it waits rather than being declared impossible.
+    const plan = routeOne(node, candidatesFor(node, state, identity.principal), state);
+    expect(plan.assignments[0]?.disposition).toBe("DEFER");
+    expect(plan.blocked).toBe(false);
+  });
+
+  it("reports genuinely spent budget as hard exhaustion", async () => {
+    const { state, identity } = await harness({ burn: 12_000 });
+    const node = task({
+      id: "plan",
+      resources: [],
+      actions: ["model:invoke"],
+      estimatedTokens: 10,
+    });
+    const [reuse] = candidatesFor(node, state, identity.principal);
+    expect(reuse?.budget.runBudgetOpen).toBe(false);
+    expect(reuse?.budget.hardCapacityAvailable).toBe(false);
+    expect(reuse?.hardEligible).toBe(false);
+    // A spent budget is a fact, so this blocks rather than deferring forever.
+    const plan = routeOne(node, candidatesFor(node, state, identity.principal), state);
+    expect(plan.assignments[0]?.disposition).toBe("BLOCKED");
   });
 });
 
@@ -465,8 +578,8 @@ describe("AB-06 — revocation overrides budget", () => {
 describe("AB-07 — declared isolation preference (soft)", () => {
   // Below the threshold on its own; the isolation bonus is what carries it over.
   const modest = {
-    expectedUtilityGain: 0.03,
-    expectedIncrementalCost: 400,
+    expectedUtilityGain: 0.05,
+    expectedIncrementalCost: 200,
   };
 
   it("reuses on a modest benefit without an isolation preference", async () => {

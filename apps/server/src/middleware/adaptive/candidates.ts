@@ -16,6 +16,7 @@
 import { authorize } from "../governance/authorize.js";
 import { deriveChildEnvelope } from "../governance/delegation.js";
 import { isResourceScopeSubset, matchesResourceScope } from "../governance/scope.js";
+import { constraintAxisFor, type ConstraintAxis } from "./constraint-axis.js";
 import type {
   Decision,
   Envelope,
@@ -41,6 +42,11 @@ export interface AuthorityView {
   legal: boolean;
   /** The untouched hard ReasonCode when legality fails. */
   reason: ReasonCode;
+  /**
+   * DERIVED explanation of which dimension refused. Never changes the verdict
+   * and never replaces `reason`, which is always carried alongside it.
+   */
+  constraintAxis: ConstraintAxis;
   detail?: string | undefined;
   /** What the task needs. */
   requiredResources: string[];
@@ -55,42 +61,95 @@ export interface AuthorityView {
   structurallyNarrower: boolean;
 }
 
-/** Why a candidate can or cannot be afforded. Peer axis to authority. */
+/**
+ * Whether a task's DECLARED estimate fits what is actually left.
+ *
+ * A shortfall is not proof that the work would overrun: there is no
+ * reservation, and the estimate is an author's guess. It is a reason to wait,
+ * not a reason to declare the task impossible.
+ */
+export type PlanningFit = "FITS_ESTIMATE" | "ESTIMATED_SHORTFALL";
+
+export type BudgetReason =
+  | "AFFORDABLE"
+  | "RUN_BUDGET_EXHAUSTED"
+  | "GRANT_BUDGET_EXHAUSTED"
+  | "CHILD_CAPACITY_EXHAUSTED"
+  | "DEPTH_EXHAUSTED"
+  | "ESTIMATED_SHORTFALL";
+
+/**
+ * Why a candidate can or cannot be afforded. Peer axis to authority.
+ *
+ * Two KINDS of truth live here and are deliberately kept apart:
+ *
+ *   HARD CAPACITY   stored runtime state - tokens actually consumed against a
+ *                   stored cap, child slots actually taken, depth actually
+ *                   spent. OBSERVED/DERIVED from ledger projections.
+ *
+ *   PLANNING FIT    whether a DECLARED estimate fits what remains. An
+ *                   author's number, never reserved and never persisted as
+ *                   usage.
+ *
+ * Collapsing them would let a guess masquerade as exhaustion.
+ */
 export interface BudgetView {
   grantTokensRemaining: number;
   runTokensRemaining: number;
   /** min of the two: what the work can actually draw on. */
   effectiveTokensRemaining: number;
-  /** DECLARED planning estimate. Never reserved, never persisted as usage. */
+
+  // --- hard capacity, from stored state ---
+  runBudgetOpen: boolean;
+  grantBudgetOpen: boolean;
+  childCapacityAvailable: boolean;
+  depthAvailable: boolean;
+  /** All hard constraints satisfied. No declared estimate involved. */
+  hardCapacityAvailable: boolean;
+
+  // --- declared planning estimate ---
+  /** DECLARED. Never reserved, never persisted as usage. */
   estimatedTokens: number;
-  tokenAffordable: boolean;
-  // Remaining execution horizon: how much further this run may expand.
+  planningFit: PlanningFit;
+
   childSlotsRemaining: number;
   depthRemaining: number;
   parallelCapacity: number;
   /** 1 - runRemaining/runCap. RUN scarcity only, never derived from the min. */
   runPressure: number;
+  /**
+   * Kept for compatibility and readability. Means
+   * `hardCapacityAvailable && planningFit === "FITS_ESTIMATE"` — it is NOT the
+   * runtime truth on its own, because an estimated shortfall may legitimately
+   * defer rather than fail. Prefer `hardCapacityAvailable` and `planningFit`.
+   */
   affordable: boolean;
   /** Typed runtime metadata, deliberately NOT a hard ReasonCode. */
   reason: BudgetReason;
 }
-
-export type BudgetReason =
-  | "AFFORDABLE"
-  | "TOKENS_EXHAUSTED"
-  | "CHILD_CAPACITY_EXHAUSTED"
-  | "DEPTH_EXHAUSTED";
 
 export interface Candidate {
   nodeId: string;
   placement: Placement;
   estimatedTokens: number;
   /**
-   * Feasible = Authorized AND Affordable.
-   *
-   * The router may soft-rank feasible candidates only. Neither axis can rescue
-   * the other: spare budget never creates permission, and permission never
-   * creates capacity.
+   * Hard-permitted AND hard capacity exists. This is the runtime truth about
+   * whether the topology is possible at all; it involves no declared estimate.
+   */
+  hardEligible: boolean;
+  /** Whether the DECLARED estimate fits what remains. */
+  planningFit: PlanningFit;
+  /**
+   * `hardEligible && planningFit === "FITS_ESTIMATE"` — the candidate could be
+   * dispatched this round. A candidate that is hardEligible but short on its
+   * estimate is NOT routable now yet may become so, which is why this is not
+   * the same as "impossible".
+   */
+  routableNow: boolean;
+  /**
+   * Retained alias of `routableNow` so existing call sites keep reading
+   * naturally. Do not treat it as the only runtime truth: it cannot
+   * distinguish a hard impossibility from a pessimistic estimate.
    */
   feasible: boolean;
   authority: AuthorityView;
@@ -196,26 +255,45 @@ function budgetViewFor(
   const childSlotsRemaining = envelope.maxChildren - grantState.childCount;
   const depthRemaining = envelope.depth;
   const parallelCapacity = context.parallelCapacity ?? 1;
-
-  const tokenAffordable = node.estimatedTokens <= effectiveTokensRemaining;
   const needsExpansion = placement === "DELEGATE_SPECIALIST";
-  const slotsOk = !needsExpansion || childSlotsRemaining > 0;
-  const depthOk = !needsExpansion || depthRemaining > 0;
 
-  const reason: BudgetReason = !tokenAffordable
-    ? "TOKENS_EXHAUSTED"
-    : !slotsOk
-      ? "CHILD_CAPACITY_EXHAUSTED"
-      : !depthOk
-        ? "DEPTH_EXHAUSTED"
-        : "AFFORDABLE";
+  // --- hard capacity: stored state only, no declared estimate ---
+  const runBudgetOpen = runTokensRemaining > 0;
+  const grantBudgetOpen = grantTokensRemaining > 0;
+  const childCapacityAvailable = !needsExpansion || childSlotsRemaining > 0;
+  const depthAvailable = !needsExpansion || depthRemaining > 0;
+  const hardCapacityAvailable =
+    runBudgetOpen && grantBudgetOpen && childCapacityAvailable && depthAvailable;
+
+  // --- declared planning estimate, kept separate ---
+  const planningFit: PlanningFit =
+    node.estimatedTokens <= effectiveTokensRemaining
+      ? "FITS_ESTIMATE"
+      : "ESTIMATED_SHORTFALL";
+
+  const reason: BudgetReason = !runBudgetOpen
+    ? "RUN_BUDGET_EXHAUSTED"
+    : !grantBudgetOpen
+      ? "GRANT_BUDGET_EXHAUSTED"
+      : !childCapacityAvailable
+        ? "CHILD_CAPACITY_EXHAUSTED"
+        : !depthAvailable
+          ? "DEPTH_EXHAUSTED"
+          : planningFit === "ESTIMATED_SHORTFALL"
+            ? "ESTIMATED_SHORTFALL"
+            : "AFFORDABLE";
 
   return {
     grantTokensRemaining,
     runTokensRemaining,
     effectiveTokensRemaining,
+    runBudgetOpen,
+    grantBudgetOpen,
+    childCapacityAvailable,
+    depthAvailable,
+    hardCapacityAvailable,
     estimatedTokens: node.estimatedTokens,
-    tokenAffordable,
+    planningFit,
     childSlotsRemaining,
     depthRemaining,
     parallelCapacity,
@@ -224,8 +302,23 @@ function budgetViewFor(
       runState.maxTokens > 0
         ? Math.min(1, Math.max(0, 1 - runTokensRemaining / runState.maxTokens))
         : 1,
-    affordable: tokenAffordable && slotsOk && depthOk,
+    affordable: hardCapacityAvailable && planningFit === "FITS_ESTIMATE",
     reason,
+  };
+}
+
+/** The three eligibility facts, derived once so they cannot drift apart. */
+function eligibility(
+  authority: AuthorityView,
+  budget: BudgetView,
+): Pick<Candidate, "hardEligible" | "planningFit" | "routableNow" | "feasible"> {
+  const hardEligible = authority.legal && budget.hardCapacityAvailable;
+  const routableNow = hardEligible && budget.planningFit === "FITS_ESTIMATE";
+  return {
+    hardEligible,
+    planningFit: budget.planningFit,
+    routableNow,
+    feasible: routableNow,
   };
 }
 
@@ -261,6 +354,7 @@ function reuseCurrent(node: TaskSpec, context: CandidateContext): Candidate {
   const authority: AuthorityView = {
     legal: denial === undefined,
     reason: denial ? denial.reason : "AUTHORIZED",
+    constraintAxis: constraintAxisFor(denial ? denial.reason : "AUTHORIZED"),
     ...(denial?.detail ? { detail: denial.detail } : {}),
     requiredResources: [...node.resources],
     requiredActions: [...node.actions],
@@ -275,7 +369,7 @@ function reuseCurrent(node: TaskSpec, context: CandidateContext): Candidate {
     nodeId: node.id,
     placement: "REUSE_CURRENT",
     estimatedTokens: node.estimatedTokens,
-    feasible: authority.legal && budget.affordable,
+    ...eligibility(authority, budget),
     authority,
     budget,
     legal: authority.legal,
@@ -318,13 +412,14 @@ function delegateSpecialist(node: TaskSpec, context: CandidateContext): Candidat
       ...baseAuthority,
       legal: false,
       reason: capacity.reason,
+      constraintAxis: constraintAxisFor(capacity.reason),
       ...(capacity.detail ? { detail: capacity.detail } : {}),
     };
     return {
       nodeId: node.id,
       placement: "DELEGATE_SPECIALIST",
       estimatedTokens: node.estimatedTokens,
-      feasible: false,
+      ...eligibility(authority, budget),
       authority,
       budget,
       legal: false,
@@ -352,16 +447,18 @@ function delegateSpecialist(node: TaskSpec, context: CandidateContext): Candidat
     },
   );
 
+  const authorityReason = derivation.ok ? ("AUTHORIZED" as const) : derivation.reason;
   const authority: AuthorityView = {
     ...baseAuthority,
     legal: derivation.ok,
-    reason: derivation.ok ? "AUTHORIZED" : derivation.reason,
+    reason: authorityReason,
+    constraintAxis: constraintAxisFor(authorityReason),
   };
   return {
     nodeId: node.id,
     placement: "DELEGATE_SPECIALIST",
     estimatedTokens: node.estimatedTokens,
-    feasible: authority.legal && budget.affordable,
+    ...eligibility(authority, budget),
     authority,
     budget,
     legal: authority.legal,
@@ -386,7 +483,12 @@ export function legalCandidates(candidates: Candidate[]): Candidate[] {
   return candidates.filter((candidate) => candidate.legal);
 }
 
-/** Feasible = Authorized AND Affordable. The only set the router may rank. */
+/** Routable now: hard-permitted, hard capacity available, estimate fits. */
 export function feasibleCandidates(candidates: Candidate[]): Candidate[] {
-  return candidates.filter((candidate) => candidate.feasible);
+  return candidates.filter((candidate) => candidate.routableNow);
+}
+
+/** Hard-permitted with real capacity, regardless of the declared estimate. */
+export function hardEligibleCandidates(candidates: Candidate[]): Candidate[] {
+  return candidates.filter((candidate) => candidate.hardEligible);
 }

@@ -15,7 +15,8 @@
  */
 
 import type { ReasonCode } from "../governance/types.js";
-import type { Candidate, Placement } from "./candidates.js";
+import type { Candidate, PlanningFit, Placement } from "./candidates.js";
+import type { ConstraintAxis } from "./constraint-axis.js";
 import type { TaskSpec } from "./task-graph.js";
 
 export type Shape = "DIRECT" | "SERIAL" | "PARALLEL";
@@ -51,14 +52,25 @@ export interface RouterPolicy {
    * is already hard-legal. Zero in every other case.
    */
   isolationBonus: number;
+  /**
+   * DECLARED, stable scale for normalising a task's incremental cost.
+   *
+   * Deliberately NOT the remaining budget. Dividing by what is left would make
+   * the same task's intrinsic worth rise as the run got poorer, and budget
+   * pressure would then suppress delegation twice - once by shrinking the value
+   * and again by raising the threshold. Runtime scarcity belongs in the
+   * threshold alone.
+   */
+  costReferenceTokens: number;
 }
 
 export const DEFAULT_ROUTER_POLICY: RouterPolicy = {
   baseThreshold: 1,
-  pressureWeight: 2,
+  pressureWeight: 6,
   parallelHeadroom: 0.75,
   epsilon: 0.01,
   isolationBonus: 0.25,
+  costReferenceTokens: 4_000,
 };
 
 export interface Assignment {
@@ -88,10 +100,17 @@ export interface Assignment {
 export interface CandidateAxes {
   placement: Placement;
   authorityLegal: boolean;
+  /** The untouched hard ReasonCode. */
   authorityReason: ReasonCode;
+  /** DERIVED explanation of which dimension refused. Never a verdict. */
+  constraintAxis: ConstraintAxis;
   budgetAffordable: boolean;
   budgetReason: string;
+  /** Hard-permitted with real capacity, independent of any declared estimate. */
+  hardEligible: boolean;
+  planningFit: PlanningFit;
   structurallyNarrower: boolean;
+  /** Routable this round. */
   feasible: boolean;
 }
 
@@ -146,12 +165,17 @@ function clamp01(value: number): number {
 }
 
 /**
- * Marginal benefit of spending extra agency on this task.
+ * INTRINSIC marginal benefit of spending extra agency on this task.
  *
- *   Value(delegate) = expectedUtilityGain / (cost fraction + epsilon)
+ *   Value = (expectedUtilityGain + authorityIsolationGain)
+ *           / (cost / costReferenceTokens + epsilon)
  *
- * Cost is a fraction of the EFFECTIVE budget — what the work can really draw
- * on. Both inputs are declared by the graph author, never measured.
+ * Intrinsic because nothing here depends on how much budget is left: the same
+ * task with the same hints and the same authority scores the same on a rich run
+ * and a poor one. Runtime scarcity moves the THRESHOLD instead, so the story is
+ * "the task did not change, the runtime state did".
+ *
+ * Every input is declared by the graph author or structural. None is measured.
  */
 export function authorityIsolationGain(
   node: TaskSpec,
@@ -168,7 +192,6 @@ export function authorityIsolationGain(
 
 export function delegationValue(
   node: TaskSpec,
-  effectiveBudgetRemaining: number,
   policy: RouterPolicy = DEFAULT_ROUTER_POLICY,
   delegateCandidate?: Candidate | undefined,
 ): number {
@@ -177,8 +200,8 @@ export function delegationValue(
   const gain = declaredGain + isolationGain;
   if (gain <= 0) return 0;
   const cost = node.hints?.expectedIncrementalCost ?? node.estimatedTokens;
-  const costFraction = cost / Math.max(1, effectiveBudgetRemaining);
-  return gain / (costFraction + policy.epsilon);
+  const normalizedCost = cost / Math.max(1, policy.costReferenceTokens);
+  return gain / (normalizedCost + policy.epsilon);
 }
 
 /**
@@ -195,7 +218,8 @@ export function delegationThreshold(
 ): number {
   const runPressure =
     runCapTokens > 0 ? clamp01(1 - runBudgetRemaining / runCapTokens) : 1;
-  return policy.baseThreshold * (1 + policy.pressureWeight * runPressure);
+  // Additive: the bar starts at baseThreshold and rises with run scarcity.
+  return policy.baseThreshold + policy.pressureWeight * runPressure;
 }
 
 function candidateFor(
@@ -217,8 +241,11 @@ function axesOf(candidates: Candidate[]): CandidateAxes[] {
     authorityReason: candidate.authority.reason,
     budgetAffordable: candidate.budget.affordable,
     budgetReason: candidate.budget.reason,
+    constraintAxis: candidate.authority.constraintAxis,
+    hardEligible: candidate.hardEligible,
+    planningFit: candidate.planningFit,
     structurallyNarrower: candidate.authority.structurallyNarrower,
-    feasible: candidate.feasible,
+    feasible: candidate.routableNow,
   }));
 }
 
@@ -298,8 +325,8 @@ export function route(inputs: RoutingInputs): RoutingPlan {
     // Feasible = Authorized AND Affordable. Only feasible candidates may be
     // soft-ranked: spare budget never creates permission, and permission never
     // creates capacity.
-    const reuseFeasible = reuse?.feasible === true;
-    const delegateFeasible = delegate?.feasible === true;
+    const reuseFeasible = reuse?.routableNow === true;
+    const delegateFeasible = delegate?.routableNow === true;
 
     if (!reuseFeasible && !delegateFeasible) {
       const anyLegal = candidates.some((candidate) => candidate.authority.legal);
@@ -318,18 +345,15 @@ export function route(inputs: RoutingInputs): RoutingPlan {
         candidateViews: views,
         wave: null,
       };
-      // Token affordability is an ESTIMATE; expansion capacity is a fact.
-      // When every authority was legal and the only obstacle is a pessimistic
-      // token estimate, the task waits for real usage under the engine's defer
-      // ceiling. A spent child slot or delegation depth cannot change, so that
-      // blocks immediately.
-      const onlyTokenEstimate =
-        anyLegal &&
-        candidates.every(
-          (candidate) =>
-            !candidate.authority.legal ||
-            candidate.budget.reason === "TOKENS_EXHAUSTED",
-        );
+      // A DECLARED estimate that does not fit is not a hard impossibility.
+      // When some placement is hard-eligible - permitted, with real capacity -
+      // and only the estimate blocks it, the task waits under the engine's
+      // bounded defer ceiling. Spent capacity or a dead grant cannot change,
+      // so those block immediately.
+      const onlyTokenEstimate = candidates.some(
+        (candidate) =>
+          candidate.hardEligible && candidate.planningFit === "ESTIMATED_SHORTFALL",
+      );
       const note =
         (anyLegal
           ? onlyTokenEstimate
@@ -356,7 +380,7 @@ export function route(inputs: RoutingInputs): RoutingPlan {
     let threshold: number | null = null;
 
     if (reuseFeasible && delegateFeasible) {
-      value = delegationValue(node, budget, policy, delegate);
+      value = delegationValue(node, policy, delegate);
       threshold = delegationThreshold(
         inputs.runBudgetRemaining,
         inputs.runCapTokens,

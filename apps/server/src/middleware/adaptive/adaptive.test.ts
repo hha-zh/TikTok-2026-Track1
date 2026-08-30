@@ -359,7 +359,7 @@ describe("Router — WHO", () => {
   });
 
   it("scores no declared hints as zero rather than guessing", () => {
-    expect(delegationValue(reasoning("a"), 12_000)).toBe(0);
+    expect(delegationValue(reasoning("a"))).toBe(0);
   });
 
   it("skips an optional impossible task and blocks a required one", () => {
