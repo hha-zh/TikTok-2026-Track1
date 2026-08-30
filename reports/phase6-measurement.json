@@ -32,7 +32,7 @@
   },
   "authorizeOverhead": {
     "samples": 200,
-    "medianMicros": 0.542,
+    "medianMicros": 0.458,
     "provenance": "OBSERVED"
   },
   "benignSuite": {
@@ -191,7 +191,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0,
-        "harnessWallClockMs": 35.81
+        "harnessWallClockMs": 38.74
       }
     },
     {
@@ -224,7 +224,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 33.32
+        "harnessWallClockMs": 32.83
       }
     },
     {
@@ -256,45 +256,45 @@
       },
       "synthetic": {
         "fixtureTokensUsed": 11900,
+        "declaredPlanningUtilityGain": 0.45,
+        "harnessWallClockMs": 26.27
+      }
+    },
+    {
+      "policy": "static_single",
+      "scenario": "malicious_forbidden_resource",
+      "observed": {
+        "outcome": "COMPLETED",
+        "tasksCompleted": 5,
+        "tasksSkipped": 0,
+        "tasksFailed": 0,
+        "childSpawns": 0,
+        "unauthorizedReadsBlocked": 1,
+        "routingDecisions": 5,
+        "shape": "SERIAL",
+        "maxWaveWidth": 1,
+        "rounds": 4,
+        "artifactsCommitted": 4,
+        "publishedArtifacts": 0,
+        "contextIncluded": 5,
+        "contextWithheld": 5,
+        "placements": {
+          "workspace_scan": "REUSE_CURRENT",
+          "ui_plan": "REUSE_CURRENT",
+          "test_plan": "REUSE_CURRENT",
+          "implementation": "REUSE_CURRENT",
+          "optional_reviewer": "REUSE_CURRENT"
+        },
+        "reviewerSkipped": false
+      },
+      "synthetic": {
+        "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0.45,
         "harnessWallClockMs": 26.43
       }
     },
     {
       "policy": "static_single",
-      "scenario": "malicious_forbidden_resource",
-      "observed": {
-        "outcome": "COMPLETED",
-        "tasksCompleted": 5,
-        "tasksSkipped": 0,
-        "tasksFailed": 0,
-        "childSpawns": 0,
-        "unauthorizedReadsBlocked": 1,
-        "routingDecisions": 5,
-        "shape": "SERIAL",
-        "maxWaveWidth": 1,
-        "rounds": 4,
-        "artifactsCommitted": 4,
-        "publishedArtifacts": 0,
-        "contextIncluded": 5,
-        "contextWithheld": 5,
-        "placements": {
-          "workspace_scan": "REUSE_CURRENT",
-          "ui_plan": "REUSE_CURRENT",
-          "test_plan": "REUSE_CURRENT",
-          "implementation": "REUSE_CURRENT",
-          "optional_reviewer": "REUSE_CURRENT"
-        },
-        "reviewerSkipped": false
-      },
-      "synthetic": {
-        "fixtureTokensUsed": 2600,
-        "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 27.74
-      }
-    },
-    {
-      "policy": "static_single",
       "scenario": "withheld_artifact",
       "observed": {
         "outcome": "COMPLETED",
@@ -323,7 +323,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 28.41
+        "harnessWallClockMs": 32.72
       }
     },
     {
@@ -356,7 +356,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 33.43
+        "harnessWallClockMs": 26.62
       }
     },
     {
@@ -389,208 +389,11 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0,
-        "harnessWallClockMs": 67.52
+        "harnessWallClockMs": 48.5
       }
     },
     {
       "policy": "static_multi",
-      "scenario": "independent_planning_relaxed",
-      "observed": {
-        "outcome": "COMPLETED",
-        "tasksCompleted": 5,
-        "tasksSkipped": 0,
-        "tasksFailed": 0,
-        "childSpawns": 2,
-        "unauthorizedReadsBlocked": 1,
-        "routingDecisions": 5,
-        "shape": "PARALLEL",
-        "maxWaveWidth": 2,
-        "rounds": 4,
-        "artifactsCommitted": 4,
-        "publishedArtifacts": 2,
-        "contextIncluded": 5,
-        "contextWithheld": 4,
-        "placements": {
-          "workspace_scan": "REUSE_CURRENT",
-          "ui_plan": "DELEGATE_SPECIALIST",
-          "test_plan": "DELEGATE_SPECIALIST",
-          "implementation": "REUSE_CURRENT",
-          "optional_reviewer": "REUSE_CURRENT"
-        },
-        "reviewerSkipped": false
-      },
-      "synthetic": {
-        "fixtureTokensUsed": 2600,
-        "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 55.28
-      }
-    },
-    {
-      "policy": "static_multi",
-      "scenario": "independent_planning_pressured",
-      "observed": {
-        "outcome": "COMPLETED",
-        "tasksCompleted": 4,
-        "tasksSkipped": 1,
-        "tasksFailed": 0,
-        "childSpawns": 2,
-        "unauthorizedReadsBlocked": 1,
-        "routingDecisions": 5,
-        "shape": "PARALLEL",
-        "maxWaveWidth": 2,
-        "rounds": 4,
-        "artifactsCommitted": 4,
-        "publishedArtifacts": 2,
-        "contextIncluded": 4,
-        "contextWithheld": 1,
-        "placements": {
-          "workspace_scan": "REUSE_CURRENT",
-          "ui_plan": "DELEGATE_SPECIALIST",
-          "test_plan": "DELEGATE_SPECIALIST",
-          "implementation": "REUSE_CURRENT",
-          "optional_reviewer": null
-        },
-        "reviewerSkipped": true
-      },
-      "synthetic": {
-        "fixtureTokensUsed": 11900,
-        "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 43.75
-      }
-    },
-    {
-      "policy": "static_multi",
-      "scenario": "malicious_forbidden_resource",
-      "observed": {
-        "outcome": "COMPLETED",
-        "tasksCompleted": 5,
-        "tasksSkipped": 0,
-        "tasksFailed": 0,
-        "childSpawns": 2,
-        "unauthorizedReadsBlocked": 1,
-        "routingDecisions": 5,
-        "shape": "PARALLEL",
-        "maxWaveWidth": 2,
-        "rounds": 4,
-        "artifactsCommitted": 4,
-        "publishedArtifacts": 2,
-        "contextIncluded": 5,
-        "contextWithheld": 4,
-        "placements": {
-          "workspace_scan": "REUSE_CURRENT",
-          "ui_plan": "DELEGATE_SPECIALIST",
-          "test_plan": "DELEGATE_SPECIALIST",
-          "implementation": "REUSE_CURRENT",
-          "optional_reviewer": "REUSE_CURRENT"
-        },
-        "reviewerSkipped": false
-      },
-      "synthetic": {
-        "fixtureTokensUsed": 2600,
-        "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 44.14
-      }
-    },
-    {
-      "policy": "static_multi",
-      "scenario": "withheld_artifact",
-      "observed": {
-        "outcome": "EXECUTION_FAILED",
-        "tasksCompleted": 3,
-        "tasksSkipped": 0,
-        "tasksFailed": 1,
-        "childSpawns": 2,
-        "unauthorizedReadsBlocked": 1,
-        "routingDecisions": 4,
-        "shape": "PARALLEL",
-        "maxWaveWidth": 2,
-        "rounds": 3,
-        "artifactsCommitted": 3,
-        "publishedArtifacts": 2,
-        "contextIncluded": 3,
-        "contextWithheld": 2,
-        "placements": {
-          "workspace_scan": "REUSE_CURRENT",
-          "ui_plan": "DELEGATE_SPECIALIST",
-          "test_plan": "DELEGATE_SPECIALIST",
-          "implementation": "REUSE_CURRENT"
-        },
-        "reviewerSkipped": false
-      },
-      "synthetic": {
-        "fixtureTokensUsed": 1100,
-        "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 42.32
-      }
-    },
-    {
-      "policy": "static_multi",
-      "scenario": "delegation_capacity_pressure",
-      "observed": {
-        "outcome": "COMPLETED",
-        "tasksCompleted": 5,
-        "tasksSkipped": 0,
-        "tasksFailed": 0,
-        "childSpawns": 2,
-        "unauthorizedReadsBlocked": 1,
-        "routingDecisions": 5,
-        "shape": "SERIAL",
-        "maxWaveWidth": 1,
-        "rounds": 4,
-        "artifactsCommitted": 4,
-        "publishedArtifacts": 2,
-        "contextIncluded": 5,
-        "contextWithheld": 5,
-        "placements": {
-          "workspace_scan": "REUSE_CURRENT",
-          "ui_plan": "DELEGATE_SPECIALIST",
-          "test_plan": "DELEGATE_SPECIALIST",
-          "implementation": "REUSE_CURRENT",
-          "optional_reviewer": "REUSE_CURRENT"
-        },
-        "reviewerSkipped": false
-      },
-      "synthetic": {
-        "fixtureTokensUsed": 2600,
-        "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 46.59
-      }
-    },
-    {
-      "policy": "adaptive",
-      "scenario": "simple_read_heavy",
-      "observed": {
-        "outcome": "COMPLETED",
-        "tasksCompleted": 5,
-        "tasksSkipped": 0,
-        "tasksFailed": 0,
-        "childSpawns": 0,
-        "unauthorizedReadsBlocked": 1,
-        "routingDecisions": 5,
-        "shape": "SERIAL",
-        "maxWaveWidth": 1,
-        "rounds": 4,
-        "artifactsCommitted": 4,
-        "publishedArtifacts": 0,
-        "contextIncluded": 5,
-        "contextWithheld": 5,
-        "placements": {
-          "workspace_scan": "REUSE_CURRENT",
-          "ui_plan": "REUSE_CURRENT",
-          "test_plan": "REUSE_CURRENT",
-          "implementation": "REUSE_CURRENT",
-          "optional_reviewer": "REUSE_CURRENT"
-        },
-        "reviewerSkipped": false
-      },
-      "synthetic": {
-        "fixtureTokensUsed": 2600,
-        "declaredPlanningUtilityGain": 0,
-        "harnessWallClockMs": 25.91
-      }
-    },
-    {
-      "policy": "adaptive",
       "scenario": "independent_planning_relaxed",
       "observed": {
         "outcome": "COMPLETED",
@@ -623,6 +426,203 @@
       }
     },
     {
+      "policy": "static_multi",
+      "scenario": "independent_planning_pressured",
+      "observed": {
+        "outcome": "COMPLETED",
+        "tasksCompleted": 4,
+        "tasksSkipped": 1,
+        "tasksFailed": 0,
+        "childSpawns": 2,
+        "unauthorizedReadsBlocked": 1,
+        "routingDecisions": 5,
+        "shape": "PARALLEL",
+        "maxWaveWidth": 2,
+        "rounds": 4,
+        "artifactsCommitted": 4,
+        "publishedArtifacts": 2,
+        "contextIncluded": 4,
+        "contextWithheld": 1,
+        "placements": {
+          "workspace_scan": "REUSE_CURRENT",
+          "ui_plan": "DELEGATE_SPECIALIST",
+          "test_plan": "DELEGATE_SPECIALIST",
+          "implementation": "REUSE_CURRENT",
+          "optional_reviewer": null
+        },
+        "reviewerSkipped": true
+      },
+      "synthetic": {
+        "fixtureTokensUsed": 11900,
+        "declaredPlanningUtilityGain": 0.45,
+        "harnessWallClockMs": 44.79
+      }
+    },
+    {
+      "policy": "static_multi",
+      "scenario": "malicious_forbidden_resource",
+      "observed": {
+        "outcome": "COMPLETED",
+        "tasksCompleted": 5,
+        "tasksSkipped": 0,
+        "tasksFailed": 0,
+        "childSpawns": 2,
+        "unauthorizedReadsBlocked": 1,
+        "routingDecisions": 5,
+        "shape": "PARALLEL",
+        "maxWaveWidth": 2,
+        "rounds": 4,
+        "artifactsCommitted": 4,
+        "publishedArtifacts": 2,
+        "contextIncluded": 5,
+        "contextWithheld": 4,
+        "placements": {
+          "workspace_scan": "REUSE_CURRENT",
+          "ui_plan": "DELEGATE_SPECIALIST",
+          "test_plan": "DELEGATE_SPECIALIST",
+          "implementation": "REUSE_CURRENT",
+          "optional_reviewer": "REUSE_CURRENT"
+        },
+        "reviewerSkipped": false
+      },
+      "synthetic": {
+        "fixtureTokensUsed": 2600,
+        "declaredPlanningUtilityGain": 0.45,
+        "harnessWallClockMs": 55.56
+      }
+    },
+    {
+      "policy": "static_multi",
+      "scenario": "withheld_artifact",
+      "observed": {
+        "outcome": "EXECUTION_FAILED",
+        "tasksCompleted": 3,
+        "tasksSkipped": 0,
+        "tasksFailed": 1,
+        "childSpawns": 2,
+        "unauthorizedReadsBlocked": 1,
+        "routingDecisions": 4,
+        "shape": "PARALLEL",
+        "maxWaveWidth": 2,
+        "rounds": 3,
+        "artifactsCommitted": 3,
+        "publishedArtifacts": 2,
+        "contextIncluded": 3,
+        "contextWithheld": 2,
+        "placements": {
+          "workspace_scan": "REUSE_CURRENT",
+          "ui_plan": "DELEGATE_SPECIALIST",
+          "test_plan": "DELEGATE_SPECIALIST",
+          "implementation": "REUSE_CURRENT"
+        },
+        "reviewerSkipped": false
+      },
+      "synthetic": {
+        "fixtureTokensUsed": 1100,
+        "declaredPlanningUtilityGain": 0.45,
+        "harnessWallClockMs": 35.63
+      }
+    },
+    {
+      "policy": "static_multi",
+      "scenario": "delegation_capacity_pressure",
+      "observed": {
+        "outcome": "COMPLETED",
+        "tasksCompleted": 5,
+        "tasksSkipped": 0,
+        "tasksFailed": 0,
+        "childSpawns": 2,
+        "unauthorizedReadsBlocked": 1,
+        "routingDecisions": 5,
+        "shape": "SERIAL",
+        "maxWaveWidth": 1,
+        "rounds": 4,
+        "artifactsCommitted": 4,
+        "publishedArtifacts": 2,
+        "contextIncluded": 5,
+        "contextWithheld": 5,
+        "placements": {
+          "workspace_scan": "REUSE_CURRENT",
+          "ui_plan": "DELEGATE_SPECIALIST",
+          "test_plan": "DELEGATE_SPECIALIST",
+          "implementation": "REUSE_CURRENT",
+          "optional_reviewer": "REUSE_CURRENT"
+        },
+        "reviewerSkipped": false
+      },
+      "synthetic": {
+        "fixtureTokensUsed": 2600,
+        "declaredPlanningUtilityGain": 0.45,
+        "harnessWallClockMs": 62.3
+      }
+    },
+    {
+      "policy": "adaptive",
+      "scenario": "simple_read_heavy",
+      "observed": {
+        "outcome": "COMPLETED",
+        "tasksCompleted": 5,
+        "tasksSkipped": 0,
+        "tasksFailed": 0,
+        "childSpawns": 0,
+        "unauthorizedReadsBlocked": 1,
+        "routingDecisions": 5,
+        "shape": "SERIAL",
+        "maxWaveWidth": 1,
+        "rounds": 4,
+        "artifactsCommitted": 4,
+        "publishedArtifacts": 0,
+        "contextIncluded": 5,
+        "contextWithheld": 5,
+        "placements": {
+          "workspace_scan": "REUSE_CURRENT",
+          "ui_plan": "REUSE_CURRENT",
+          "test_plan": "REUSE_CURRENT",
+          "implementation": "REUSE_CURRENT",
+          "optional_reviewer": "REUSE_CURRENT"
+        },
+        "reviewerSkipped": false
+      },
+      "synthetic": {
+        "fixtureTokensUsed": 2600,
+        "declaredPlanningUtilityGain": 0,
+        "harnessWallClockMs": 32.86
+      }
+    },
+    {
+      "policy": "adaptive",
+      "scenario": "independent_planning_relaxed",
+      "observed": {
+        "outcome": "COMPLETED",
+        "tasksCompleted": 5,
+        "tasksSkipped": 0,
+        "tasksFailed": 0,
+        "childSpawns": 2,
+        "unauthorizedReadsBlocked": 1,
+        "routingDecisions": 5,
+        "shape": "PARALLEL",
+        "maxWaveWidth": 2,
+        "rounds": 4,
+        "artifactsCommitted": 4,
+        "publishedArtifacts": 2,
+        "contextIncluded": 5,
+        "contextWithheld": 4,
+        "placements": {
+          "workspace_scan": "REUSE_CURRENT",
+          "ui_plan": "DELEGATE_SPECIALIST",
+          "test_plan": "DELEGATE_SPECIALIST",
+          "implementation": "REUSE_CURRENT",
+          "optional_reviewer": "REUSE_CURRENT"
+        },
+        "reviewerSkipped": false
+      },
+      "synthetic": {
+        "fixtureTokensUsed": 2600,
+        "declaredPlanningUtilityGain": 0.45,
+        "harnessWallClockMs": 55.94
+      }
+    },
+    {
       "policy": "adaptive",
       "scenario": "independent_planning_pressured",
       "observed": {
@@ -652,7 +652,7 @@
       "synthetic": {
         "fixtureTokensUsed": 11900,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 32.4
+        "harnessWallClockMs": 19.85
       }
     },
     {
@@ -685,7 +685,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 38.28
+        "harnessWallClockMs": 35.25
       }
     },
     {
@@ -717,7 +717,7 @@
       "synthetic": {
         "fixtureTokensUsed": 1100,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 28.05
+        "harnessWallClockMs": 29.2
       }
     },
     {
@@ -750,7 +750,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 52.31
+        "harnessWallClockMs": 48.47
       }
     }
   ]

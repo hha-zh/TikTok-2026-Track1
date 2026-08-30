@@ -6,15 +6,14 @@ Update at the end of every item, in the same commit.
 ## Where we are
 
 - Branch `feature/runtime-governor`, pushed and in sync with origin.
-- `npm run check` green — **269 tests, 25 files**, typecheck and both builds pass.
+- `npm run check` green — **311 tests, 28 files**, typecheck and both builds pass.
   The launcher flake is fixed (verified 8/8 plus three full runs).
 - Hard Governance is complete and reachable from the real production path. Per
   the project boundary, do not expand it further without a concrete
   verification bug.
-- **Adaptive Runtime started.** Pure core landed: TaskGraph, CandidateBuilder,
-  Router. Not yet built: ContextBroker, ExecutionEngine, Todo demo graph.
-- **Not started:** negative-test sweep, VECTORS.md, measurement, Run Inspector,
-  README, reproducibility.
+- **Adaptive Runtime complete through Phase 6C.** Pipeline runs end to end and
+  the runtime feedback loop is proven by test, not asserted.
+- **Not started:** Run Inspector / frontend, VECTORS.md, README, reproducibility.
 
 ## Item status
 
@@ -104,7 +103,14 @@ whether something is permitted, stop and report rather than adding it.
 | Output type contract + conflict-safe schema registration | done |
 | Phase 6 case manifest (HG-01..15, AR-01..10) | done |
 | Phase 6 baseline comparison + measurement | done |
-| External container probe script | written, NOT RUN here |
+| Explanatory ConstraintAxis (never a verdict) | done |
+| Hard capacity split from declared planning estimate | done |
+| Intrinsic delegation value independent of remaining budget | done |
+| ONE CandidateSnapshot per task/round (router == evidence) | done |
+| decisionId correlation (decision -> invocation -> outcome) | done |
+| TopologyPolicyMode for declared static baselines | done |
+| Ledger feedback loop proven without manual usage writes | done |
+| External container probe script | written, NOT RUN — environment unavailable |
 | Run Inspector / README | **not started — stopped for review** |
 
 ### Two envelopes, deliberately separate
@@ -126,58 +132,67 @@ HOW has its own inputs. PARALLEL requires separate executors AND declared
 independence AND budget headroom — two independent delegations still serialise
 when headroom is thin.
 
+## Phase 6C — the feedback loop and what it cost to state honestly
+
+    routing decision -> execution -> tokens_consumed -> projection -> next decision
+
+Every budget number a decision sees is folded out of the ledger. No test in
+`phase6/feedback-loop.test.ts` writes `runState.tokensUsed` or
+`grantState.tokensUsed`; the only lever is what the executor actually costs.
+
+### Three separations that were previously blurred
+
+| was | now |
+| --- | --- |
+| `affordable` mixed stored capacity with a declared estimate | `hardEligible` (stored state) vs `planningFit` (declared) vs `routableNow` (both) |
+| delegation value divided by remaining budget | value is intrinsic; scarcity lives only in the threshold |
+| "authority denied" flattened scope and horizon | `ReasonCode` preserved, `ConstraintAxis` explains alongside it |
+
+`ConstraintAxis` is EXPLANATORY ONLY. `authorize()` remains the single hard
+primitive and its `ReasonCode` is always recorded beside the axis. If the axis
+ever appears in a branch that decides an outcome, that is a bug.
+
+### One snapshot, one decision
+
+`buildCandidates` runs once per task per round. The router ranks those objects
+and the ledger records those same objects, shared by reference. Building twice
+over identical state usually agreed — and "usually" is precisely the property a
+governance trail cannot rest on. A test counts real builds against recorded
+decisions; two builds would double the count.
+
+### Router policy constants (declared, not fitted)
+
+| constant | value | note |
+| --- | --- | --- |
+| `mode` | `ADAPTIVE` | `ALWAYS_REUSE` / `ALWAYS_DELEGATE` are the static baselines |
+| `baseThreshold` | 1 | bar at zero pressure |
+| `pressureWeight` | 6 | additive: `base + weight * runPressure` |
+| `costReferenceTokens` | 4000 | stable scale — deliberately NOT remaining budget |
+| `parallelHeadroom` | 0.75 | fraction of effective budget a wave may plan |
+| `isolationBonus` | 0.25 | only when declared AND structurally narrower AND legal |
+| `epsilon` | 0.01 | guards divide-by-zero on a zero-cost task |
+
+Not fitted to observed data, and no claim is made that they are. The scenario
+matrix in `reports/PHASE6.md` shows the three policies separating.
+
+## Backend freeze criteria
+
+| criterion | state |
+| --- | --- |
+| `authorize()` is the only hard verdict primitive | held |
+| No second authorization system in `router.ts` / `candidates.ts` | held |
+| One `GovernanceLedger`, single append path, projections in the same mutation | held |
+| No raw prompts, protected contents, child output, tokens or credentials persisted | held |
+| Return Gate mandatory for every child->parent handoff | held |
+| Dispatch-time revalidation survives planning-time approval | held |
+| Declared estimates never reserved against, or folded into, real usage | held |
+| HG-01..15, AR-01..10, AB-01..07 present, with limitations stated | held (HG-14 PARTIAL) |
+| `npm run check` green three consecutive runs | held |
+| Complete mediation under `local-process` | **NOT held — container mode only** |
+| Per-model-call Model/Budget mediation | **NOT held — dispatch granularity (HG-14)** |
+| External Container/Codex/Ark probe executed | **NOT RUN — environment unavailable** |
+
 ## Next action
 
-**Stopped before the Todo task templates, as instructed**, so execution
-behaviour can be reviewed before the four routing constants are tuned.
-
-The adaptive pipeline is complete and green end to end:
-
-    deriveExecutionEnvelope -> CandidateBuilder -> Router
-      -> ContextBroker -> ExecutionEngine
-
-Tuning should come from a deterministic scenario matrix against the integrated
-graph, not intuition. `RouterPolicy` and `EnginePolicy` are both injectable, so
-that needs no routing changes.
-
-**Artifact visibility is directional**, which the integrated run forced into the
-open:
-
-    parent -> child     briefing. Parent already holds it, child is narrower.
-    child -> parent     declassification. Return Gate only.
-    sibling -> sibling  never.
-
-`UIPlan` and `TestPlan` are registered bounded types, so a delegated planner
-publishes its result and the parent's `implementation` step consumes the
-published artifact. Both are `delegatable`-only; `app/*` exercisable-only,
-`sec/INC-42` delegatable-only and `payments/*` forbidden are unchanged.
-
-**Two runtime layers, labelled honestly.**
-
-    deterministic middleware semantics          PROVEN
-    real AgentService / RunnerRequest crossing  PROVEN
-    external Container / Codex / Ark execution  NOT PROVEN until actually run
-
-Run the third layer on a machine with Docker and Ark credentials:
-
-    npm run build
-    ARK_API_KEY=... ARK_MODEL=... node scripts/phase6-container-probe.mjs
-
-It refuses with exit 2 when the environment is unavailable and never fakes a
-result. Measurement output regenerates on every `npm run check` into
-`reports/phase6-measurement.json` and `reports/PHASE6.md`.
-
-**HG-14 is PARTIAL and stays PARTIAL.** Model/Budget is mediated at DISPATCH
-granularity: once a run's budget is exhausted no further dispatch occurs, but
-individual model calls inside one dispatch are not separately intercepted and
-are accounted post-hoc from reported usage. Do not claim per-call mediation.
-
-The live layer substitutes only the model: an injected `AgentRunner` verifies
-its RUN_TOKEN and crosses the same Resource and Artifact Gates a container
-would reach over HTTP. The external probe cannot run here - Docker is not
-running, the runtime image is absent, and this repo has no `.env`. Do not
-claim Codex/Ark verification.
-
-The other open front is evidence: the Run Inspector has nothing on screen yet,
-and everything it needs is already a ledger query — `budgetView`,
-`provenanceView`, `eventView` in `middleware/evidence/views.ts`.
+Frontend / Run Inspector. Backend is frozen at the criteria above; reopen it
+only for a concrete verification bug, not for polish.
