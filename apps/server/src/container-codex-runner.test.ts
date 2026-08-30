@@ -76,6 +76,7 @@ describe("Container Codex runner", () => {
     );
     expect(args.slice(-3)).toEqual(["resume", "thread-123", "continue"]);
     expect(args).not.toContain("keep-id");
+    expect(args).toContain("host.docker.internal:host-gateway");
     expect(args).not.toContain("RUN_TOKEN");
   });
 

@@ -15,6 +15,11 @@ import { WorkspaceManager } from "./workspace.js";
 
 const now = () => new Date().toISOString();
 
+export interface GovernedExecutionContext {
+  runtimeRunToken: string;
+  onExecutionFailure?: () => Promise<void>;
+}
+
 export class AgentService {
   private readonly activeExecutions = new Map<string, Promise<void>>();
   private readonly cancellationRequests = new Set<string>();
@@ -154,6 +159,25 @@ export class AgentService {
     agentId: string,
     prompt: string,
   ): Promise<{ run: AgentRun; message: Message }> {
+    return this.scheduleMessage(agentId, prompt);
+  }
+
+  async sendGovernedMessage(
+    agentId: string,
+    prompt: string,
+    context: GovernedExecutionContext,
+  ): Promise<{ run: AgentRun; message: Message }> {
+    if (!context.runtimeRunToken) {
+      throw new Error("Governed execution requires a runtime run token");
+    }
+    return this.scheduleMessage(agentId, prompt, context);
+  }
+
+  private async scheduleMessage(
+    agentId: string,
+    prompt: string,
+    governed?: GovernedExecutionContext,
+  ): Promise<{ run: AgentRun; message: Message }> {
     if (!isArkConfigured(this.config)) {
       throw new HttpError(
         503,
@@ -201,7 +225,7 @@ export class AgentService {
       storedAgent.updatedAt = timestamp;
       return snapshot;
     });
-    const execution = this.executeRun(agentAtStart, run);
+    const execution = this.executeRun(agentAtStart, run, governed);
     this.activeExecutions.set(agentId, execution);
     void execution
       .finally(() => {
@@ -232,7 +256,11 @@ export class AgentService {
     };
   }
 
-  private async executeRun(agentAtStart: Agent, run: AgentRun): Promise<void> {
+  private async executeRun(
+    agentAtStart: Agent,
+    run: AgentRun,
+    governed?: GovernedExecutionContext,
+  ): Promise<void> {
     await this.store.mutate((database) => {
       const storedRun = database.runs.find((item) => item.id === run.id);
       if (storedRun) {
@@ -249,6 +277,7 @@ export class AgentService {
         workspacePath: agentAtStart.workspacePath,
         prompt: run.prompt,
         threadId: agentAtStart.codexThreadId,
+        ...(governed ? { runtimeRunToken: governed.runtimeRunToken } : {}),
       });
       const completedAt = now();
       await this.store.mutate((database) => {
@@ -292,6 +321,9 @@ export class AgentService {
           agent.updatedAt = completedAt;
         }
       });
+      if (governed?.onExecutionFailure) {
+        await governed.onExecutionFailure().catch(() => undefined);
+      }
     }
   }
 

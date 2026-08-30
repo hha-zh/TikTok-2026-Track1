@@ -223,34 +223,32 @@ describe("POST /api/delegations", () => {
     return { ...base, app, token };
   }
 
-  it("returns a narrow grant result without a fake child Agent or token", async () => {
+  it("requires a bounded task before entering the live-child launcher", async () => {
     const { app, token } = await httpFixture();
     const response = await app.inject({ method: "POST", url: "/api/delegations", headers: { authorization: `Bearer ${token}` }, payload: { ...request, expiresAt: undefined } });
-    expect(response.statusCode).toBe(201);
-    expect(response.json()).toMatchObject({ status: "grant_created" });
-    expect(response.json()).not.toHaveProperty("childAgentId");
-    expect(response.body).not.toContain("bouncer.v1");
+    expect(response.statusCode).toBe(400);
+    expect(response.json().reason).toBe("MALFORMED_INPUT");
     await app.close();
   });
 
   it("rejects a forged Runtime token", async () => {
     const { app, token } = await httpFixture();
     const forged = token.slice(0, -1) + (token.endsWith("A") ? "B" : "A");
-    const response = await app.inject({ method: "POST", url: "/api/delegations", headers: { authorization: `Bearer ${forged}` }, payload: request });
+    const response = await app.inject({ method: "POST", url: "/api/delegations", headers: { authorization: `Bearer ${forged}` }, payload: { ...request, task: "safe task" } });
     expect(response.statusCode).toBe(401);
     await app.close();
   });
 
   it("does not let a human header impersonate Runtime delegation", async () => {
     const { app } = await httpFixture();
-    const response = await app.inject({ method: "POST", url: "/api/delegations", headers: { authorization: "Bearer transport-only", "x-principal-id": "wtan" }, payload: request });
+    const response = await app.inject({ method: "POST", url: "/api/delegations", headers: { authorization: "Bearer transport-only", "x-principal-id": "wtan" }, payload: { ...request, task: "safe task" } });
     expect(response.statusCode).toBe(401);
     await app.close();
   });
 
   it("rejects client-supplied authority relationship fields", async () => {
     const { app, token } = await httpFixture();
-    const response = await app.inject({ method: "POST", url: "/api/delegations", headers: { authorization: `Bearer ${token}` }, payload: { ...request, principalId: "injected" } });
+    const response = await app.inject({ method: "POST", url: "/api/delegations", headers: { authorization: `Bearer ${token}` }, payload: { ...request, task: "safe task", principalId: "injected" } });
     expect(response.statusCode).toBe(400);
     expect(response.json().reason).toBe("MALFORMED_INPUT");
     await app.close();

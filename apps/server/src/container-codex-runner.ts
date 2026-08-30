@@ -88,6 +88,9 @@ export function buildContainerRunArgs(
     "--label",
     "io.codejam.instance-id=" + config.runtimeInstanceId,
     ...(engineName === "podman" ? ["--userns", "keep-id"] : []),
+    ...(engineName === "docker"
+      ? ["--add-host", "host.docker.internal:host-gateway"]
+      : []),
     "--network",
     "bridge",
     "--security-opt",

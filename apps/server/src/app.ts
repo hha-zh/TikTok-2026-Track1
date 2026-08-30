@@ -23,6 +23,7 @@ import {
   DelegationService,
   type ChildEnvelopeRequest,
 } from "./middleware/governance/delegation.js";
+import { DelegatedAgentLauncher } from "./middleware/runtime/delegated-agent-launcher.js";
 
 interface GovernanceDependencies extends IdentityDependencies {
   ledger: GovernanceLedger;
@@ -62,6 +63,7 @@ const childEnvelopeBody = z
     maxToolCalls: z.number().int().nonnegative(),
     maxChildren: z.number().int().nonnegative(),
     expiresAt: z.iso.datetime({ offset: true }).optional(),
+    task: z.string().trim().min(1).max(20_000),
   })
   .strict();
 
@@ -93,6 +95,16 @@ export async function createApp(
     ? new DelegationService({
         store: identityDependencies.store,
         ledger: identityDependencies.ledger,
+      })
+    : null;
+  const delegatedAgents = identityDependencies?.ledger && delegations
+    ? new DelegatedAgentLauncher({
+        config,
+        store: identityDependencies.store,
+        ledger: identityDependencies.ledger,
+        runTokens: identityDependencies.runTokens,
+        delegation: delegations,
+        agents: service,
       })
     : null;
 
@@ -255,7 +267,7 @@ export async function createApp(
     if (!identity || identity.kind !== "agent") {
       return reply.code(401).send({ error: "Runtime authentication required" });
     }
-    if (!delegations) {
+    if (!delegatedAgents) {
       return reply.code(503).send({ error: "Governance unavailable" });
     }
     const parsed = childEnvelopeBody.safeParse(request.body);
@@ -264,9 +276,11 @@ export async function createApp(
         .code(400)
         .send({ error: "invalid_delegation", reason: "MALFORMED_INPUT" });
     }
-    const result = await delegations.delegate(
+    const { task, ...authority } = parsed.data;
+    const result = await delegatedAgents.launch(
       identity,
-      parsed.data as ChildEnvelopeRequest,
+      authority as ChildEnvelopeRequest,
+      task,
     );
     if (!result.ok) {
       return reply.code(result.statusCode).send({
@@ -276,7 +290,7 @@ export async function createApp(
         reason: result.reason,
       });
     }
-    return reply.code(201).send(result.grant);
+    return reply.code(201).send(result.handle);
   });
 
   app.get("/api/agents", async () => ({ agents: service.listAgents() }));
