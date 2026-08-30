@@ -1,28 +1,33 @@
 /**
- * Adaptive Router — choose how to execute the ready nodes, strictly inside the
+ * Adaptive Router — decide how much agency is worth using, strictly inside the
  * legal space Hard Governance has already defined.
  *
- * The router never produces a verdict. Every input candidate arrives already
- * marked legal or illegal by `authorize()` / `deriveChildEnvelope()`, and the
- * router only ranks the legal ones and reports the rest verbatim. If this file
- * ever needs to reason about resources, actions or ancestry to decide whether
- * something is permitted, that is the signal a second authorization system is
- * being introduced — stop and report instead.
+ * The router never produces a verdict. Candidates arrive already marked legal
+ * or illegal by `authorize()` / `deriveChildEnvelope()`; the router ranks the
+ * legal ones and reports the rest verbatim. If this file ever needs to reason
+ * about resources, actions or ancestry to decide whether something is
+ * PERMITTED, that is a second authorization system appearing — stop and report.
  *
- * What the router does own: preference between legal placements, batch shape,
- * and what to do when the budget or the child ceiling will not stretch.
+ * Two dimensions, kept independent:
+ *
+ *   WHO   REUSE_CURRENT | DELEGATE_SPECIALIST     executor strategy
+ *   HOW   DIRECT | SERIAL | PARALLEL              execution mode
+ *
+ * HOW is not a consequence of WHO. Two independent delegations may still be
+ * serialised when budget pressure makes concurrency unattractive, and a single
+ * delegation is DIRECT rather than PARALLEL.
  */
 
 import type { ReasonCode } from "../governance/types.js";
 import type { Candidate, Placement } from "./candidates.js";
-import type { TaskNode } from "./task-graph.js";
+import type { TaskSpec } from "./task-graph.js";
 
 export type Shape = "DIRECT" | "SERIAL" | "PARALLEL";
 
 export type Disposition =
   /** Runs, as preferred. */
   | "RUN"
-  /** Runs, but not as preferred — serialised where parallel was possible. */
+  /** Runs, but not as preferred — serialised where parallel was warranted. */
   | "DEGRADE"
   /** Not this round. Dependencies or budget may allow it later. */
   | "DEFER"
@@ -40,6 +45,10 @@ export interface Assignment {
   governanceReason: ReasonCode | null;
   /** Adaptive rationale, always present. */
   note: string;
+  /** Marginal-benefit score, when both placements were legal. */
+  delegationValue: number | null;
+  /** The bar that score had to clear, raised by budget pressure. */
+  delegationThreshold: number | null;
 }
 
 export interface RoutingPlan {
@@ -49,37 +58,77 @@ export interface RoutingPlan {
   plannedTokens: number;
   budgetRemaining: number;
   childSlotsRemaining: number;
-  /** True when the plan is blocked on a required node it cannot execute. */
+  /** True when blocked on a required task it cannot execute. */
   blocked: boolean;
+  /** Why this shape, in one line, for the Run Inspector. */
+  shapeReason: string;
 }
 
 export interface RoutingInputs {
-  /** Ready nodes paired with the candidates built for them. */
-  entries: { node: TaskNode; candidates: Candidate[] }[];
+  entries: { node: TaskSpec; candidates: Candidate[] }[];
   /** min(grantCap - grantUsed, runCap - runUsed), computed by the caller. */
   budgetRemaining: number;
+  /** The run ceiling, used only to scale budget pressure. */
+  runCapTokens: number;
   /** envelope.maxChildren - grantState.childCount. */
   childSlotsRemaining: number;
 }
 
+/** Guards the divide when a task declares zero incremental cost. */
+const EPSILON = 0.01;
+/** Score a delegation must clear at zero budget pressure. */
+const BASE_THRESHOLD = 1;
+/** How much a fully consumed budget raises that bar. */
+const PRESSURE_WEIGHT = 2;
+/** Parallelism needs slack, not just permission. */
+const PARALLEL_HEADROOM = 0.75;
+
+function clamp01(value: number): number {
+  if (!Number.isFinite(value)) return 1;
+  return Math.min(1, Math.max(0, value));
+}
+
 /**
- * REUSE_CURRENT first when it is legal: it adds no principal, no grant and no
- * delegation round-trip. Delegation is the answer to "I am not allowed to do
- * this myself", not a default.
+ * Marginal benefit of spending extra agency on this task.
+ *
+ *   Value(delegate) = expectedUtilityGain / (expectedIncrementalCost + ε)
+ *
+ * Cost is expressed as a fraction of what is actually left, so the same
+ * declared cost weighs more heavily when the budget is nearly spent. Both
+ * inputs are DECLARED by the graph author, never measured — nothing here is
+ * telemetry and no claim should be made that it is.
+ *
+ * No hints means no evidence that extra agency is worthwhile, which scores 0
+ * and resolves to REUSE_CURRENT.
  */
-function preferred(candidates: Candidate[]): Candidate | undefined {
-  const legal = candidates.filter((candidate) => candidate.legal);
-  return (
-    legal.find((candidate) => candidate.placement === "REUSE_CURRENT") ?? legal[0]
-  );
+export function delegationValue(node: TaskSpec, budgetRemaining: number): number {
+  const gain = node.hints?.expectedUtilityGain ?? 0;
+  if (gain <= 0) return 0;
+  const cost = node.hints?.expectedIncrementalCost ?? node.estimatedTokens;
+  const costFraction = cost / Math.max(1, budgetRemaining);
+  return gain / (costFraction + EPSILON);
+}
+
+/** Budget pressure raises the bar for spending extra agency. */
+export function delegationThreshold(
+  budgetRemaining: number,
+  runCapTokens: number,
+): number {
+  const pressure =
+    runCapTokens > 0 ? clamp01(1 - budgetRemaining / runCapTokens) : 1;
+  return BASE_THRESHOLD * (1 + PRESSURE_WEIGHT * pressure);
+}
+
+function candidateFor(
+  candidates: Candidate[],
+  placement: Placement,
+): Candidate | undefined {
+  return candidates.find((candidate) => candidate.placement === placement);
 }
 
 /** The denial to report when nothing is legal: prefer the reuse path's reason. */
 function reportableDenial(candidates: Candidate[]): Candidate | undefined {
-  return (
-    candidates.find((candidate) => candidate.placement === "REUSE_CURRENT") ??
-    candidates[0]
-  );
+  return candidateFor(candidates, "REUSE_CURRENT") ?? candidates[0];
 }
 
 export function route(inputs: RoutingInputs): RoutingPlan {
@@ -87,46 +136,76 @@ export function route(inputs: RoutingInputs): RoutingPlan {
   let budget = inputs.budgetRemaining;
   let slots = inputs.childSlotsRemaining;
   let blocked = false;
-  let delegations = 0;
   let runnable = 0;
+  const delegated: string[] = [];
 
   for (const { node, candidates } of inputs.entries) {
-    const choice = preferred(candidates);
+    const reuse = candidateFor(candidates, "REUSE_CURRENT");
+    const delegate = candidateFor(candidates, "DELEGATE_SPECIALIST");
+    const reuseLegal = reuse?.legal === true;
+    const delegateLegal = delegate?.legal === true;
 
-    if (!choice) {
-      const denial = reportableDenial(candidates);
-      const reason = denial?.reason ?? "RESOURCE_NOT_GRANTED";
+    if (!reuseLegal && !delegateLegal) {
+      const reason = reportableDenial(candidates)?.reason ?? "RESOURCE_NOT_GRANTED";
+      const base = {
+        nodeId: node.id,
+        placement: null,
+        estimatedTokens: node.estimatedTokens,
+        governanceReason: reason,
+        delegationValue: null,
+        delegationThreshold: null,
+      };
       if (node.optional) {
         assignments.push({
-          nodeId: node.id,
+          ...base,
           disposition: "SKIP",
-          placement: null,
-          estimatedTokens: node.estimatedTokens,
-          governanceReason: reason,
-          note: "optional node dropped: no permitted placement",
+          note: "optional task dropped: no permitted placement",
         });
       } else {
         blocked = true;
         assignments.push({
-          nodeId: node.id,
+          ...base,
           disposition: "BLOCKED",
-          placement: null,
-          estimatedTokens: node.estimatedTokens,
-          governanceReason: reason,
-          note: "required node has no permitted placement",
+          note: "required task has no permitted placement",
         });
       }
       continue;
     }
 
-    // Delegation needs a child slot. Without one, fall back to reuse if that is
-    // also legal; otherwise the node waits rather than being dropped.
-    let placement = choice.placement;
+    // --- WHO. A real choice when both are legal, not a fallback. ---
+    let placement: Placement;
+    let note: string;
+    let value: number | null = null;
+    let threshold: number | null = null;
+
+    if (reuseLegal && delegateLegal) {
+      value = delegationValue(node, budget);
+      threshold = delegationThreshold(budget, inputs.runCapTokens);
+      if (node.hints?.specialistRequired) {
+        placement = "DELEGATE_SPECIALIST";
+        note = "specialist declared required and delegation is permitted";
+      } else if (value >= threshold) {
+        placement = "DELEGATE_SPECIALIST";
+        note = `declared benefit ${value.toFixed(2)} clears threshold ${threshold.toFixed(2)}`;
+      } else {
+        placement = "REUSE_CURRENT";
+        note =
+          value > 0
+            ? `declared benefit ${value.toFixed(2)} below threshold ${threshold.toFixed(2)}`
+            : "no declared benefit to extra agency";
+      }
+    } else if (reuseLegal) {
+      placement = "REUSE_CURRENT";
+      note = "only the current principal may perform this";
+    } else {
+      placement = "DELEGATE_SPECIALIST";
+      note = "the current principal may cause this but not perform it";
+    }
+
+    // Delegation needs a child slot. Without one, fall back to reuse when that
+    // is also legal; otherwise the task waits rather than being dropped.
     if (placement === "DELEGATE_SPECIALIST" && slots <= 0) {
-      const reuse = candidates.find(
-        (candidate) => candidate.placement === "REUSE_CURRENT" && candidate.legal,
-      );
-      if (!reuse) {
+      if (!reuseLegal) {
         assignments.push({
           nodeId: node.id,
           disposition: "DEFER",
@@ -134,31 +213,36 @@ export function route(inputs: RoutingInputs): RoutingPlan {
           estimatedTokens: node.estimatedTokens,
           governanceReason: null,
           note: "no child slots remaining and reuse is not permitted",
+          delegationValue: value,
+          delegationThreshold: threshold,
         });
         continue;
       }
       placement = "REUSE_CURRENT";
+      note = "delegation preferred but no child slots remain; reusing instead";
     }
 
     if (node.estimatedTokens > budget) {
+      const base = {
+        nodeId: node.id,
+        placement: null,
+        estimatedTokens: node.estimatedTokens,
+        governanceReason: null,
+        delegationValue: value,
+        delegationThreshold: threshold,
+      };
       if (node.optional) {
         assignments.push({
-          nodeId: node.id,
+          ...base,
           disposition: "SKIP",
-          placement: null,
-          estimatedTokens: node.estimatedTokens,
-          governanceReason: null,
-          note: `optional node dropped: needs ${node.estimatedTokens}, ${budget} left`,
+          note: `optional task dropped: needs ${node.estimatedTokens}, ${budget} left`,
         });
       } else {
-        // Estimates are pessimistic, so a required node waits for real usage
+        // Estimates are pessimistic, so a required task waits for real usage
         // rather than being declared impossible on an estimate alone.
         assignments.push({
-          nodeId: node.id,
+          ...base,
           disposition: "DEFER",
-          placement: null,
-          estimatedTokens: node.estimatedTokens,
-          governanceReason: null,
           note: `insufficient budget: needs ${node.estimatedTokens}, ${budget} left`,
         });
       }
@@ -169,7 +253,7 @@ export function route(inputs: RoutingInputs): RoutingPlan {
     runnable += 1;
     if (placement === "DELEGATE_SPECIALIST") {
       slots -= 1;
-      delegations += 1;
+      delegated.push(node.id);
     }
     assignments.push({
       nodeId: node.id,
@@ -177,36 +261,46 @@ export function route(inputs: RoutingInputs): RoutingPlan {
       placement,
       estimatedTokens: node.estimatedTokens,
       governanceReason: null,
-      note:
-        placement === "REUSE_CURRENT"
-          ? "current principal is permitted to do this itself"
-          : "delegated: the current principal may cause this but not perform it",
+      note,
+      delegationValue: value,
+      delegationThreshold: threshold,
     });
   }
 
-  // Shape follows from what was actually assigned. One principal cannot run two
-  // things at once, so only delegated work can be parallel.
-  let shape: Shape = "DIRECT";
-  if (runnable > 1) {
-    shape = delegations >= 2 ? "PARALLEL" : "SERIAL";
-  }
+  // --- HOW. Decided on its own inputs, not inferred from WHO. ---
+  const byId = new Map(inputs.entries.map((entry) => [entry.node.id, entry.node]));
+  const independentDelegations = delegated.filter(
+    (id) => byId.get(id)?.hints?.independent === true,
+  );
+  const plannedTokens = assignments
+    .filter((item) => item.disposition === "RUN")
+    .reduce((total, item) => total + item.estimatedTokens, 0);
 
-  // Anything delegated beyond the parallel width still runs, but serialised.
-  if (shape === "SERIAL" && delegations >= 2) {
-    for (const assignment of assignments) {
-      if (assignment.disposition === "RUN" && assignment.placement === "DELEGATE_SPECIALIST") {
-        assignment.disposition = "DEGRADE";
-        assignment.note = "serialised: parallel width unavailable";
+  let shape: Shape = "DIRECT";
+  let shapeReason = "a single unit of work this round";
+  if (runnable > 1) {
+    // Concurrency needs separate executors, declared independence, AND slack.
+    const hasHeadroom = plannedTokens <= inputs.budgetRemaining * PARALLEL_HEADROOM;
+    if (independentDelegations.length >= 2 && hasHeadroom) {
+      shape = "PARALLEL";
+      shapeReason = `${independentDelegations.length} independent delegations with budget headroom`;
+    } else if (independentDelegations.length >= 2) {
+      shape = "SERIAL";
+      shapeReason = "independent delegations serialised: insufficient budget headroom";
+      for (const assignment of assignments) {
+        if (assignment.disposition === "RUN" && independentDelegations.includes(assignment.nodeId)) {
+          assignment.disposition = "DEGRADE";
+          assignment.note = "serialised: parallel was warranted but budget headroom was not";
+        }
       }
+    } else if (delegated.length >= 2) {
+      shape = "SERIAL";
+      shapeReason = "delegations not declared independent";
+    } else {
+      shape = "SERIAL";
+      shapeReason = "one principal cannot run two units of work at once";
     }
   }
-
-  const plannedTokens = assignments
-    .filter(
-      (assignment) =>
-        assignment.disposition === "RUN" || assignment.disposition === "DEGRADE",
-    )
-    .reduce((total, assignment) => total + assignment.estimatedTokens, 0);
 
   return {
     shape,
@@ -215,5 +309,6 @@ export function route(inputs: RoutingInputs): RoutingPlan {
     budgetRemaining: budget,
     childSlotsRemaining: slots,
     blocked,
+    shapeReason,
   };
 }

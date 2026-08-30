@@ -6,7 +6,7 @@ Update at the end of every item, in the same commit.
 ## Where we are
 
 - Branch `feature/runtime-governor`, pushed and in sync with origin.
-- `npm run check` green — **182 tests, 19 files**, typecheck and both builds pass.
+- `npm run check` green — **194 tests, 19 files**, typecheck and both builds pass.
   The launcher flake is fixed (verified 8/8 plus three full runs).
 - Hard Governance is complete and reachable from the real production path. Per
   the project boundary, do not expand it further without a concrete
@@ -88,20 +88,46 @@ whether something is permitted, stop and report rather than adding it.
 
 | piece | state |
 | --- | --- |
-| TaskGraph (validate, readiness, cycles) | done |
+| Invocation ExecutionEnvelope (Γ_i = Γ_principal ∩ Γ_task ∩ Γ_policy) | done |
+| TaskSpec + TaskGraph (artifact-aware readiness, unreachability, cycles) | done |
 | CandidateBuilder (REUSE_CURRENT / DELEGATE_SPECIALIST) | done |
-| Router (DIRECT / SERIAL / PARALLEL, RUN / DEGRADE / DEFER / SKIP / BLOCKED) | done |
+| Router — WHO (soft marginal-benefit ranking, budget pressure) | done |
+| Router — HOW (DIRECT / SERIAL / PARALLEL, decided independently of WHO) | done |
 | ContextBroker | not started |
 | ExecutionEngine | not started |
 | Todo TaskGraph + integrated demo | not started |
 
+### Two envelopes, deliberately separate
+
+    Envelope (governance)      authority SOURCE  — what a principal holds
+    ExecutionEnvelope          per-task VIEW     — what one task may use
+
+One principal executes different tasks under different narrowed scopes without
+spawning a child. The view is built by intersection so it cannot widen, and it
+returns no verdict — `authorize()` is still asked against the grant.
+
+### WHO and HOW are independent
+
+WHO is a real choice when both placements are legal: declared marginal benefit
+against a threshold that rises with budget pressure. No hints means no evidence
+that extra agency is worthwhile, which resolves to REUSE_CURRENT.
+
+HOW has its own inputs. PARALLEL requires separate executors AND declared
+independence AND budget headroom — two independent delegations still serialise
+when headroom is thin.
+
 ## Next action
 
-**ExecutionEngine** — drive a TaskGraph round by round: build candidates for the
-ready set, route them, execute the assignments (reuse inline, delegate via the
-existing `DelegatedAgentLauncher`), record real usage, then re-route with the
-updated budget. It is the piece that turns the pure core into something
-demonstrable, and it needs no new governance surface.
+**Stopped for contract review, as instructed.** The corrected adaptive contracts
+are `execution-envelope.ts`, `task-graph.ts`, `candidates.ts` and `router.ts`.
+
+Intended order once reviewed:
+
+    deriveExecutionEnvelope -> CandidateBuilder -> Router
+      -> ContextBroker -> ExecutionEngine -> Todo integrated TaskGraph
+
+The ExecutionEngine needs a bounded defer ceiling; a required task that is
+DEFERred on an optimistic estimate would otherwise livelock.
 
 The other open front is evidence: the Run Inspector has nothing on screen yet,
 and everything it needs is already a ledger query — `budgetView`,

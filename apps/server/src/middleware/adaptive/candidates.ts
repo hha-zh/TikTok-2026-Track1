@@ -16,7 +16,8 @@
 import { authorize } from "../governance/authorize.js";
 import { deriveChildEnvelope } from "../governance/delegation.js";
 import type { Decision, GovernanceState, Principal, ReasonCode } from "../governance/types.js";
-import type { TaskNode } from "./task-graph.js";
+import { deriveExecutionEnvelope, type ExecutionEnvelope, type ExecutionPolicy } from "./execution-envelope.js";
+import type { TaskSpec } from "./task-graph.js";
 
 /** Where the work runs. */
 export type Placement = "REUSE_CURRENT" | "DELEGATE_SPECIALIST";
@@ -29,6 +30,14 @@ export interface Candidate {
   /** ALLOW when legal; otherwise the untouched reason from Hard Governance. */
   reason: ReasonCode;
   detail?: string | undefined;
+  /**
+   * The per-task narrowed view, present on the REUSE path only. Delegated work
+   * gets a real child grant from `deriveChildEnvelope` instead.
+   *
+   * Carried for the ContextBroker and the engine. It is a view, not a verdict:
+   * nothing downstream may treat it as permission.
+   */
+  executionEnvelope?: ExecutionEnvelope | undefined;
 }
 
 export interface CandidateContext {
@@ -36,6 +45,8 @@ export interface CandidateContext {
   state: GovernanceState;
   /** Injected so candidate building stays deterministic and testable. */
   now: string;
+  /** Optional run-level narrowing folded into the invocation envelope. */
+  policy?: ExecutionPolicy | undefined;
   childGrantId?: string | undefined;
   childPrincipalId?: string | undefined;
 }
@@ -49,7 +60,7 @@ function firstDenial(decisions: Decision[]): Decision | undefined {
  * node needs has to pass, so a node that reads two resources is legal only if
  * both are exercisable.
  */
-function reuseCurrent(node: TaskNode, context: CandidateContext): Candidate {
+function reuseCurrent(node: TaskSpec, context: CandidateContext): Candidate {
   const decisions: Decision[] = [];
   for (const action of node.actions) {
     if (node.resources.length === 0) {
@@ -68,6 +79,14 @@ function reuseCurrent(node: TaskNode, context: CandidateContext): Candidate {
     legal: denial === undefined,
     reason: denial ? denial.reason : "AUTHORIZED",
     ...(denial?.detail ? { detail: denial.detail } : {}),
+    // Γ_i = Γ_principal ∩ Γ_task ∩ Γ_policy, built whether or not the candidate
+    // is legal: the Run Inspector should be able to show what the task would
+    // have been scoped to.
+    executionEnvelope: deriveExecutionEnvelope({
+      state: context.state,
+      task: node,
+      policy: context.policy,
+    }),
   };
 }
 
@@ -78,7 +97,7 @@ function reuseCurrent(node: TaskNode, context: CandidateContext): Candidate {
  * them the other way round would report CHILD_EXCEEDS_PARENT for a principal
  * that had simply run out of delegation depth, which is a misleading denial.
  */
-function delegateSpecialist(node: TaskNode, context: CandidateContext): Candidate {
+function delegateSpecialist(node: TaskSpec, context: CandidateContext): Candidate {
   const capacity = authorize(context.principal, "delegate", null, context.state);
   if (capacity.verdict === "DENY") {
     return {
@@ -126,7 +145,7 @@ function delegateSpecialist(node: TaskNode, context: CandidateContext): Candidat
  * produces an empty timeline on stage.
  */
 export function buildCandidates(
-  node: TaskNode,
+  node: TaskSpec,
   context: CandidateContext,
 ): Candidate[] {
   return [reuseCurrent(node, context), delegateSpecialist(node, context)];
