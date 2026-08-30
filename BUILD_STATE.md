@@ -6,7 +6,7 @@ Update at the end of every item, in the same commit.
 ## Where we are
 
 - Branch `feature/runtime-governor`, pushed and in sync with origin.
-- `npm run check` green — **194 tests, 19 files**, typecheck and both builds pass.
+- `npm run check` green — **219 tests, 21 files**, typecheck and both builds pass.
   The launcher flake is fixed (verified 8/8 plus three full runs).
 - Hard Governance is complete and reachable from the real production path. Per
   the project boundary, do not expand it further without a concrete
@@ -93,9 +93,9 @@ whether something is permitted, stop and report rather than adding it.
 | CandidateBuilder (REUSE_CURRENT / DELEGATE_SPECIALIST) | done |
 | Router — WHO (soft marginal-benefit ranking, budget pressure) | done |
 | Router — HOW (DIRECT / SERIAL / PARALLEL, decided independently of WHO) | done |
-| ContextBroker | not started |
-| ExecutionEngine | not started |
-| Todo TaskGraph + integrated demo | not started |
+| ContextBroker (least context, Return-Gate boundary) | done |
+| ExecutionEngine (round-based, waves, defer ceiling) | done |
+| Todo TaskGraph + integrated demo | **not started — stopped for review** |
 
 ### Two envelopes, deliberately separate
 
@@ -118,16 +118,25 @@ when headroom is thin.
 
 ## Next action
 
-**Stopped for contract review, as instructed.** The corrected adaptive contracts
-are `execution-envelope.ts`, `task-graph.ts`, `candidates.ts` and `router.ts`.
+**Stopped before the Todo task templates, as instructed**, so execution
+behaviour can be reviewed before the four routing constants are tuned.
 
-Intended order once reviewed:
+The adaptive pipeline is complete and green end to end:
 
     deriveExecutionEnvelope -> CandidateBuilder -> Router
-      -> ContextBroker -> ExecutionEngine -> Todo integrated TaskGraph
+      -> ContextBroker -> ExecutionEngine
 
-The ExecutionEngine needs a bounded defer ceiling; a required task that is
-DEFERred on an optimistic estimate would otherwise livelock.
+Tuning should come from a deterministic scenario matrix against the integrated
+graph, not intuition. `RouterPolicy` and `EnginePolicy` are both injectable, so
+that needs no routing changes.
+
+**One constraint the Todo graph must design around:** a delegated child's raw
+output cannot reach a parent task. It carries the child's principal, so the
+ContextBroker withholds it, and the engine refuses to dispatch the dependent
+task. The only child-to-parent path is a published bounded artifact. If
+`ui_plan` or `test_plan` are produced by children and consumed by the parent,
+they need registered artifact types through the existing Artifact Gate — see
+BACKLOG. Otherwise author those steps as REUSE work.
 
 The other open front is evidence: the Run Inspector has nothing on screen yet,
 and everything it needs is already a ledger query — `budgetView`,
