@@ -13,6 +13,15 @@ import type {
 } from "./middleware/governance/identity.js";
 import { verifyIdentity } from "./middleware/governance/identity.js";
 import { RunTokenService } from "./middleware/governance/run-token.js";
+import type { GovernanceLedger } from "./middleware/evidence/ledger.js";
+import {
+  invokeTrustedTool,
+  readManagedResource,
+} from "./middleware/governance/gates.js";
+
+interface GovernanceDependencies extends IdentityDependencies {
+  ledger: GovernanceLedger;
+}
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -38,7 +47,7 @@ const messageBody = z.object({
 export async function createApp(
   config: AppConfig,
   service: AgentService,
-  identityDependencies?: IdentityDependencies,
+  identityDependencies?: IdentityDependencies & Partial<Pick<GovernanceDependencies, "ledger">>,
 ): Promise<FastifyInstance> {
   const app = Fastify({
     logger: {
@@ -82,7 +91,12 @@ export async function createApp(
         return reply.code(401).send({ error: "Runtime authentication failed" });
       }
       request.governanceIdentity = result.identity;
-      if (request.url.split("?", 1)[0] === "/api/runtime/identity") return;
+      const pathname = request.url.split("?", 1)[0] ?? "";
+      if (
+        pathname === "/api/runtime/identity" ||
+        pathname.startsWith("/api/resources/") ||
+        pathname.startsWith("/api/tools/")
+      ) return;
     } else if (principalId && identityDependencies) {
       const result = verifyIdentity(
         { principalHeader: principalId },
@@ -134,6 +148,52 @@ export async function createApp(
       runId: identity.runId,
       kind: identity.kind,
     };
+  });
+
+  app.get("/api/resources/*", async (request, reply) => {
+    const identity = request.governanceIdentity;
+    if (!identity || identity.kind !== "agent") {
+      return reply.code(401).send({ error: "Runtime authentication required" });
+    }
+    if (!identityDependencies?.ledger) {
+      return reply.code(503).send({ error: "Governance unavailable" });
+    }
+    const resourceId = (request.params as { "*"?: string })["*"];
+    if (!resourceId) {
+      return reply.code(400).send({ error: "malformed_input", reason: "MALFORMED_INPUT" });
+    }
+    const result = await readManagedResource(identity, resourceId, {
+      store: identityDependencies.store,
+      ledger: identityDependencies.ledger,
+    });
+    if (!result.ok) {
+      const error = result.statusCode === 403 ? "forbidden" : "request_failed";
+      return reply.code(result.statusCode).send({ error, reason: result.reason });
+    }
+    return reply.send(result.value);
+  });
+
+  app.post("/api/tools/:name", async (request, reply) => {
+    const identity = request.governanceIdentity;
+    if (!identity || identity.kind !== "agent") {
+      return reply.code(401).send({ error: "Runtime authentication required" });
+    }
+    if (!identityDependencies?.ledger) {
+      return reply.code(503).send({ error: "Governance unavailable" });
+    }
+    const parsed = z.object({ name: z.string().regex(/^[a-z][a-z0-9_]{0,63}$/) }).safeParse(request.params);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "malformed_input", reason: "MALFORMED_INPUT" });
+    }
+    const result = await invokeTrustedTool(identity, parsed.data.name, {
+      store: identityDependencies.store,
+      ledger: identityDependencies.ledger,
+    });
+    if (!result.ok) {
+      const error = result.statusCode === 403 ? "forbidden" : "request_failed";
+      return reply.code(result.statusCode).send({ error, reason: result.reason });
+    }
+    return reply.send(result.value);
   });
 
   app.get("/api/agents", async () => ({ agents: service.listAgents() }));
