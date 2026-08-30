@@ -40,3 +40,9 @@ One line per finding. Decided at checkpoints, not implemented mid-stream.
 - Routing constants are still the initial declared heuristics. Tuning should come from a scenario matrix over this graph, not intuition; `RouterPolicy` and `EnginePolicy` are injectable so no routing change is needed.
 - External container/Codex/Ark probe: NOT RUN. Docker daemon not running, `volc-agent-runtime:local` absent, no `.env` in this repo. The live AgentService integration is proven with an injected AgentRunner; that is a substitute for the MODEL only, never for the governance path. Report the two layers separately.
 - `GovernedProbeRunner` encodes the task id in the prompt (`[bouncer-task:<id>]`) so the injected runner knows what to do. A real Codex agent would be told the same thing in prose; if the prompt format changes, that runner needs updating.
+
+## Phase 6 findings
+
+- HG-14 COMPLETE MEDIATION IS PARTIAL. Resource, Trusted Tool, Delegation and Artifact/Return mediate every crossing through authorize(). Model/Budget does not: it is a pre-dispatch gate on accumulated usage, so a container may make several model calls inside one dispatch that are never individually intercepted and are accounted only from the usage the runtime reports. The claim that holds is "once a run's budget is exhausted, no further dispatch occurs". Do not upgrade this to per-call mediation without a real model proxy.
+- Static Single completes the `withheld_artifact` scenario where Static Multi and Adaptive fail it. That is correct, not a bug: under REUSE the planner's output never crosses a principal boundary, so no publication is required. The failure is a property of delegation, which is what the Return Gate is for.
+- `authorize()` median overhead measured at sub-microsecond on this machine. That is an in-process figure on a hand-built GovernanceState; it is not end-to-end request latency.

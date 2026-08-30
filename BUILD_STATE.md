@@ -6,7 +6,7 @@ Update at the end of every item, in the same commit.
 ## Where we are
 
 - Branch `feature/runtime-governor`, pushed and in sync with origin.
-- `npm run check` green — **251 tests, 23 files**, typecheck and both builds pass.
+- `npm run check` green — **269 tests, 25 files**, typecheck and both builds pass.
   The launcher flake is fixed (verified 8/8 plus three full runs).
 - Hard Governance is complete and reachable from the real production path. Per
   the project boundary, do not expand it further without a concrete
@@ -102,7 +102,10 @@ whether something is permitted, stop and report rather than adding it.
 | Real AgentService integration (live adapter) | done |
 | Adaptive runtime evidence persisted to the ledger | done |
 | Output type contract + conflict-safe schema registration | done |
-| Phase 6 case suite / measurement | **not started — stopped for review** |
+| Phase 6 case manifest (HG-01..15, AR-01..10) | done |
+| Phase 6 baseline comparison + measurement | done |
+| External container probe script | written, NOT RUN here |
+| Run Inspector / README | **not started — stopped for review** |
 
 ### Two envelopes, deliberately separate
 
@@ -151,12 +154,23 @@ published artifact. Both are `delegatable`-only; `app/*` exercisable-only,
 
 **Two runtime layers, labelled honestly.**
 
-    deterministic adapter   real gates + real DelegationService,
-                            in-process execution        PROVEN
-    live adapter            real AgentService, Agent persistence,
-                            workspace allocation, RunnerRequest,
-                            child RUN_TOKEN handoff     PROVEN
-    external container      Codex + Ark in a container  NOT RUN
+    deterministic middleware semantics          PROVEN
+    real AgentService / RunnerRequest crossing  PROVEN
+    external Container / Codex / Ark execution  NOT PROVEN until actually run
+
+Run the third layer on a machine with Docker and Ark credentials:
+
+    npm run build
+    ARK_API_KEY=... ARK_MODEL=... node scripts/phase6-container-probe.mjs
+
+It refuses with exit 2 when the environment is unavailable and never fakes a
+result. Measurement output regenerates on every `npm run check` into
+`reports/phase6-measurement.json` and `reports/PHASE6.md`.
+
+**HG-14 is PARTIAL and stays PARTIAL.** Model/Budget is mediated at DISPATCH
+granularity: once a run's budget is exhausted no further dispatch occurs, but
+individual model calls inside one dispatch are not separately intercepted and
+are accounted post-hoc from reported usage. Do not claim per-call mediation.
 
 The live layer substitutes only the model: an injected `AgentRunner` verifies
 its RUN_TOKEN and crosses the same Resource and Artifact Gates a container
