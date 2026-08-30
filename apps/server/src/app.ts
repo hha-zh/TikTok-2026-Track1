@@ -19,6 +19,10 @@ import {
   readManagedResource,
 } from "./middleware/governance/gates.js";
 import { HumanRevocationService } from "./middleware/governance/revocation.js";
+import {
+  DelegationService,
+  type ChildEnvelopeRequest,
+} from "./middleware/governance/delegation.js";
 
 interface GovernanceDependencies extends IdentityDependencies {
   ledger: GovernanceLedger;
@@ -44,6 +48,22 @@ const updateAgentBody = createAgentBody.partial().refine(
 const messageBody = z.object({
   content: z.string().trim().min(1).max(50_000),
 });
+const authoritySet = z
+  .object({
+    resources: z.array(z.string().trim().min(1).max(200)).max(100),
+    actions: z.array(z.string().trim().min(1).max(100)).max(100),
+  })
+  .strict();
+const childEnvelopeBody = z
+  .object({
+    exercisable: authoritySet,
+    delegatable: authoritySet.optional(),
+    maxTokens: z.number().int().nonnegative(),
+    maxToolCalls: z.number().int().nonnegative(),
+    maxChildren: z.number().int().nonnegative(),
+    expiresAt: z.iso.datetime({ offset: true }).optional(),
+  })
+  .strict();
 
 export async function createApp(
   config: AppConfig,
@@ -68,6 +88,12 @@ export async function createApp(
   app.decorateRequest("governanceIdentity", null);
   const revocations = identityDependencies?.ledger
     ? new HumanRevocationService(identityDependencies.store, identityDependencies.ledger)
+    : null;
+  const delegations = identityDependencies?.ledger
+    ? new DelegationService({
+        store: identityDependencies.store,
+        ledger: identityDependencies.ledger,
+      })
     : null;
 
   app.addHook("onRequest", async (request, reply) => {
@@ -98,6 +124,7 @@ export async function createApp(
       const pathname = request.url.split("?", 1)[0] ?? "";
       if (
         pathname === "/api/runtime/identity" ||
+        pathname === "/api/delegations" ||
         pathname.startsWith("/api/resources/") ||
         pathname.startsWith("/api/tools/")
       ) return;
@@ -221,6 +248,35 @@ export async function createApp(
         .send({ error: result.statusCode === 404 ? "Not found" : "Forbidden" });
     }
     return reply.send({ grantId: result.grantId, revoked: result.revoked });
+  });
+
+  app.post("/api/delegations", async (request, reply) => {
+    const identity = request.governanceIdentity;
+    if (!identity || identity.kind !== "agent") {
+      return reply.code(401).send({ error: "Runtime authentication required" });
+    }
+    if (!delegations) {
+      return reply.code(503).send({ error: "Governance unavailable" });
+    }
+    const parsed = childEnvelopeBody.safeParse(request.body);
+    if (!parsed.success) {
+      return reply
+        .code(400)
+        .send({ error: "invalid_delegation", reason: "MALFORMED_INPUT" });
+    }
+    const result = await delegations.delegate(
+      identity,
+      parsed.data as ChildEnvelopeRequest,
+    );
+    if (!result.ok) {
+      return reply.code(result.statusCode).send({
+        error: result.reason === "CHILD_EXCEEDS_PARENT"
+          ? "invalid_delegation"
+          : "forbidden",
+        reason: result.reason,
+      });
+    }
+    return reply.code(201).send(result.grant);
   });
 
   app.get("/api/agents", async () => ({ agents: service.listAgents() }));

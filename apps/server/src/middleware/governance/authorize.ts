@@ -1,16 +1,12 @@
 import type { Decision, GovernanceState, Principal } from "./types.js";
+import { matchesResourceScope } from "./scope.js";
 
 function deny(reason: Decision["reason"]): Decision {
   return { verdict: "DENY", reason };
 }
 
 function matchesResource(resource: string, granted: readonly string[]): boolean {
-  return granted.some((scope) => {
-    if (scope === resource) return true;
-    if (!scope.endsWith("/*")) return false;
-    const prefix = scope.slice(0, -1);
-    return resource.length > prefix.length && resource.startsWith(prefix);
-  });
+  return granted.some((scope) => matchesResourceScope(resource, scope));
 }
 
 function hasBudget(state: GovernanceState): boolean {
