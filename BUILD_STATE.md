@@ -6,7 +6,7 @@ Update at the end of every item, in the same commit.
 ## Where we are
 
 - Branch `feature/runtime-governor`, pushed and in sync with origin.
-- `npm run check` green — **234 tests, 22 files**, typecheck and both builds pass.
+- `npm run check` green — **251 tests, 23 files**, typecheck and both builds pass.
   The launcher flake is fixed (verified 8/8 plus three full runs).
 - Hard Governance is complete and reachable from the real production path. Per
   the project boundary, do not expand it further without a concrete
@@ -99,6 +99,9 @@ whether something is permitted, stop and report rather than adding it.
 | UIPlan / TestPlan bounded Return-Gate types | done |
 | Real delegation + Resource/Artifact Gate adapters | done |
 | Backend denial + recovery in the same run | done |
+| Real AgentService integration (live adapter) | done |
+| Adaptive runtime evidence persisted to the ledger | done |
+| Output type contract + conflict-safe schema registration | done |
 | Phase 6 case suite / measurement | **not started — stopped for review** |
 
 ### Two envelopes, deliberately separate
@@ -146,10 +149,20 @@ publishes its result and the parent's `implementation` step consumes the
 published artifact. Both are `delegatable`-only; `app/*` exercisable-only,
 `sec/INC-42` delegatable-only and `payments/*` forbidden are unchanged.
 
-**Not yet exercised against a real runtime.** The Todo adapters are
-deterministic - real gates and real delegation, but no model call and no
-container. Docker is not running on this host and the runtime image is absent,
-so the AgentService/container probe has NOT been executed.
+**Two runtime layers, labelled honestly.**
+
+    deterministic adapter   real gates + real DelegationService,
+                            in-process execution        PROVEN
+    live adapter            real AgentService, Agent persistence,
+                            workspace allocation, RunnerRequest,
+                            child RUN_TOKEN handoff     PROVEN
+    external container      Codex + Ark in a container  NOT RUN
+
+The live layer substitutes only the model: an injected `AgentRunner` verifies
+its RUN_TOKEN and crosses the same Resource and Artifact Gates a container
+would reach over HTTP. The external probe cannot run here - Docker is not
+running, the runtime image is absent, and this repo has no `.env`. Do not
+claim Codex/Ark verification.
 
 The other open front is evidence: the Run Inspector has nothing on screen yet,
 and everything it needs is already a ledger query — `budgetView`,
