@@ -18,6 +18,7 @@ import {
   invokeTrustedTool,
   readManagedResource,
 } from "./middleware/governance/gates.js";
+import { HumanRevocationService } from "./middleware/governance/revocation.js";
 
 interface GovernanceDependencies extends IdentityDependencies {
   ledger: GovernanceLedger;
@@ -65,6 +66,9 @@ export async function createApp(
   });
 
   app.decorateRequest("governanceIdentity", null);
+  const revocations = identityDependencies?.ledger
+    ? new HumanRevocationService(identityDependencies.store, identityDependencies.ledger)
+    : null;
 
   app.addHook("onRequest", async (request, reply) => {
     const authorizationHeader = request.headers.authorization;
@@ -194,6 +198,29 @@ export async function createApp(
       return reply.code(result.statusCode).send({ error, reason: result.reason });
     }
     return reply.send(result.value);
+  });
+
+  app.post("/api/envelopes/:id/revoke", async (request, reply) => {
+    const identity = request.governanceIdentity;
+    if (!identity || identity.kind !== "human") {
+      return reply.code(401).send({ error: "Human authentication required" });
+    }
+    if (!revocations) {
+      return reply.code(503).send({ error: "Governance unavailable" });
+    }
+    const parsed = z
+      .object({ id: z.string().trim().min(1).max(200) })
+      .safeParse(request.params);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "Malformed request" });
+    }
+    const result = await revocations.revoke(identity, parsed.data.id);
+    if (!result.ok) {
+      return reply
+        .code(result.statusCode)
+        .send({ error: result.statusCode === 404 ? "Not found" : "Forbidden" });
+    }
+    return reply.send({ grantId: result.grantId, revoked: result.revoked });
   });
 
   app.get("/api/agents", async () => ({ agents: service.listAgents() }));
