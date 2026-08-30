@@ -7,6 +7,7 @@ Update at the end of every item, in the same commit.
 
 - Branch `feature/runtime-governor`, 12 commits ahead of the starter baseline.
 - `npm run check` green — **164 tests, 18 files**, typecheck and both builds pass.
+  Verified over three consecutive runs; the launcher flake is fixed.
 - **Not started:** Tier 3 (negative-test sweep, VECTORS.md, measurement, hash
   chain) and Tier 4 (run console, reproducibility, README).
 
@@ -61,9 +62,6 @@ pre-existing contract is unchanged.
 
 See [BACKLOG.md](BACKLOG.md). Blocking ones:
 
-- **Flaky test** — `delegated-agent-launcher.test.ts` fails roughly 1 run in 3
-  with `ENOTEMPTY` during cleanup: a store write is still in flight when the
-  temp directory is removed. An un-awaited mutation, not a cleanup bug.
 - **No UI** — every governance view is backend-only; the console (item 19) is
   what a judge actually looks at.
 - **Docs describe the middleware-free starter kit** and contradict what the

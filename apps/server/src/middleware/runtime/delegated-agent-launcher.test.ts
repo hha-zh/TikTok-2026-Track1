@@ -16,7 +16,14 @@ import { RunTokenService } from "../governance/run-token.js";
 import { DelegatedAgentLauncher } from "./delegated-agent-launcher.js";
 
 const roots: string[] = [];
+const services: AgentService[] = [];
 afterEach(async () => {
+  // Drain before removing the temp dirs. sendMessage resolves once a run is
+  // queued and executeRun keeps writing to the store afterwards, so cleanup
+  // otherwise races those writes and fails intermittently with ENOTEMPTY.
+  await Promise.all(
+    services.splice(0).map((service) => service.drainActiveExecutions()),
+  );
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
@@ -62,6 +69,7 @@ async function harness(runner = new CapturingRunner()) {
   const store = new JsonStore(path.join(root, "data", "db.json"));
   const workspaces = new WorkspaceManager(path.join(root, "workspaces"));
   const agents = new AgentService(config, store, workspaces, runner);
+  services.push(agents);
   await agents.initialize();
   const parentAgent = await agents.createAgent({ name: "Real parent Agent" });
   await store.mutate((database) => {

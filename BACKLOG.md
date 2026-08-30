@@ -4,7 +4,6 @@ One line per finding. Decided at checkpoints, not implemented mid-stream.
 
 ## Blocking
 
-- Flaky test: `delegated-agent-launcher.test.ts` fails ~1 run in 3 with `ENOTEMPTY` while removing its temp dir. Cleanup already uses `rm(recursive, force)`, so files are being written *during* deletion — an un-awaited store mutation outliving the test. Fix the await, not the cleanup.
 - No governance UI. Envelope comparison, decision timeline, delegation tree, budget bar and artifact private/published are all backend-only. Item 19.
 - README and docs still describe the middleware-free starter kit.
 

@@ -162,6 +162,18 @@ export class AgentService {
     return this.scheduleMessage(agentId, prompt);
   }
 
+  /**
+   * Awaits every in-flight run execution.
+   *
+   * `sendMessage` resolves once a run is QUEUED; `executeRun` then keeps
+   * writing to the store in the background. Anything that tears down the data
+   * directory afterwards - a test, or an orderly shutdown - races those writes
+   * unless it drains first.
+   */
+  async drainActiveExecutions(): Promise<void> {
+    await Promise.allSettled([...this.activeExecutions.values()]);
+  }
+
   async sendGovernedMessage(
     agentId: string,
     prompt: string,
