@@ -98,46 +98,65 @@ export interface GovernanceEventPayloadMap {
   task_ready: { taskId: string };
   task_deferred: { taskId: string; deferCount: number; note: string };
   routing_decision: {
+    /** Correlates this decision with the invocation and outcome it produced. */
+    decisionId: string;
     taskId: string;
     disposition: string;
     placement: string | null;
+    shape: string;
+    wave: number | null;
     /** DECLARED hints, echoed for later explanation. Never measured. */
     declaredUtilityGain: number | null;
     declaredIncrementalCost: number | null;
     declaredIsolationPreference: string | null;
+    /** DECLARED estimate for the task, weighed against every placement. */
+    estimatedTokens: number | null;
     /** DECLARED/STRUCTURAL. Zero unless isolation genuinely applies. */
     authorityIsolationGain: number | null;
-    /** DERIVED. */
+    /** DERIVED. Intrinsic: does not vary with remaining budget. */
     delegationValue: number | null;
+    /** DERIVED. Rises with run pressure. */
     delegationThreshold: number | null;
-    runPressure: number | null;
-    shape: string;
-    wave: number | null;
     /**
-     * Both axes for both placements.
+     * Runtime state at the moment of the decision, recorded ONCE rather than
+     * repeated per candidate. OBSERVED/DERIVED from ledger projections.
+     */
+    budget: {
+      effectiveTokensRemaining: number;
+      runTokensRemaining: number;
+      runPressure: number;
+      childSlotsRemaining: number;
+      depthRemaining: number;
+      parallelCapacity: number;
+    };
+    /**
+     * The EXACT candidates that were ranked - one snapshot, built once and
+     * shared by the router and this record, so evidence cannot describe a
+     * different set from the one that decided.
      *
-     * Enough that one routing decision can later be explained without
-     * reconstructing it from unrelated events - and specifically enough to
-     * distinguish "authorized but unaffordable" from "not authorized".
-     * Resource and action IDS only; no values, no prompts, no content.
+     * Resource and action IDS only; no values, prompts or content.
      */
     candidates: {
       placement: string;
       authorityLegal: boolean;
+      /** The untouched hard ReasonCode. */
       authorityReason: string;
-      budgetAffordable: boolean;
+      /** DERIVED explanation. Never a verdict. */
+      constraintAxis: string;
+      /** Hard-permitted with real capacity; no declared estimate involved. */
+      hardEligible: boolean;
+      /** Whether the DECLARED estimate fits. */
+      planningFit: string;
       budgetReason: string;
       structurallyNarrower: boolean;
-      feasible: boolean;
+      routableNow: boolean;
       effectiveResources: string[];
       effectiveActions: string[];
-      estimatedTokens: number;
-      effectiveTokensRemaining: number;
-      childSlotsRemaining: number;
-      depthRemaining: number;
     }[];
   };
   invocation_started: {
+    /** Same id as the routing_decision this invocation came from. */
+    decisionId: string | null;
     invocationId: string;
     taskId: string;
     executorPrincipalId: string;

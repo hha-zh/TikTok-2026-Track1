@@ -373,7 +373,7 @@ async function runTodo(burn: number, parallelCapacity = 2) {
       | {
           placement: string | null;
           shape: string;
-          candidates: { placement: string; feasible: boolean }[];
+          candidates: { placement: string; routableNow: boolean }[];
         }
       | undefined;
   return { result, decisionFor };
@@ -387,7 +387,7 @@ describe("AB-01 — Todo, relaxed budget", () => {
     expect(decisionFor(TASK_TEST_PLAN)?.placement).toBe("DELEGATE_SPECIALIST");
     expect(decisionFor(TASK_UI_PLAN)?.shape).toBe("PARALLEL");
     // Both placements were genuinely available; this was a choice, not a fallback.
-    expect(decisionFor(TASK_UI_PLAN)?.candidates.every((item) => item.feasible)).toBe(
+    expect(decisionFor(TASK_UI_PLAN)?.candidates.every((item) => item.routableNow)).toBe(
       true,
     );
   });
@@ -404,7 +404,7 @@ describe("AB-02 — the same Todo graph under budget pressure", () => {
     const delegate = decisionFor(TASK_UI_PLAN)?.candidates.find(
       (item) => item.placement === "DELEGATE_SPECIALIST",
     );
-    expect(delegate?.feasible).toBe(true);
+    expect(delegate?.routableNow).toBe(true);
     expect(result.progress.skipped.has(TASK_OPTIONAL_REVIEWER)).toBe(true);
   });
 });
@@ -636,6 +636,6 @@ describe("AB-07 — declared isolation preference (soft)", () => {
     // A routing hint must never become a second authorization system.
     expect(reuse?.authority.legal).toBe(true);
     expect(reuse?.authority.reason).toBe("AUTHORIZED");
-    expect(reuse?.feasible).toBe(true);
+    expect(reuse?.routableNow).toBe(true);
   });
 });

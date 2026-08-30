@@ -30,7 +30,7 @@ import type { GovernanceEventPayloadMap } from "../evidence/types.js";
 import { ancestorPrincipalIds } from "../governance/artifacts.js";
 import { resolveGrant } from "../governance/grant-resolver.js";
 import type { GovernanceState, Principal, ReasonCode } from "../governance/types.js";
-import { buildCandidates } from "./candidates.js";
+import { buildCandidates, type Candidate } from "./candidates.js";
 import {
   projectContext,
   type ContextArtifact,
@@ -149,7 +149,27 @@ export type RunOutcome =
   | "ROUND_LIMIT"
   | "EXECUTION_FAILED";
 
-export interface RoundRecord {
+export /**
+ * The candidate set for one round, built once.
+ *
+ * Exists so that "what the router ranked" and "what the ledger recorded" are
+ * the same array of the same objects rather than two independent builds.
+ */
+interface CandidateSnapshot {
+  roundIndex: number;
+  entries: { node: TaskSpec; candidates: Candidate[] }[];
+}
+
+/**
+ * Correlates a routing decision with the invocation it produced and that
+ * invocation's outcome. Deterministic from state already in hand, so nothing
+ * extra has to be threaded through the router.
+ */
+function decisionIdFor(runId: string, roundIndex: number, taskId: string): string {
+  return `${runId}:r${roundIndex}:${taskId}`;
+}
+
+interface RoundRecord {
   index: number;
   plan: RoutingPlan;
   executed: {
@@ -333,7 +353,15 @@ export class ExecutionEngine {
       }
       const state = resolution.state;
 
-      const plan = route({
+      // ONE candidate snapshot per round.
+      //
+      // Built exactly once and then shared by reference: the router ranks these
+      // objects and the ledger records these same objects. Building twice would
+      // usually agree, but "usually" is the whole problem - the set that decided
+      // and the set recorded as evidence must be the same set, not two sets that
+      // happen to match.
+      const snapshot: CandidateSnapshot = {
+        roundIndex: index,
         entries: ready.map((node) => ({
           node,
           candidates: buildCandidates(node, {
@@ -346,6 +374,13 @@ export class ExecutionEngine {
               : {}),
           }),
         })),
+      };
+      const candidatesByTask = new Map(
+        snapshot.entries.map((entry) => [entry.node.id, entry.candidates]),
+      );
+
+      const plan = route({
+        entries: snapshot.entries,
         effectiveBudgetRemaining: effectiveRemaining(state),
         runBudgetRemaining: state.runState.maxTokens - state.runState.tokensUsed,
         runCapTokens: state.runState.maxTokens,
@@ -371,50 +406,47 @@ export class ExecutionEngine {
               ),
             )
           : 1;
-      const candidatesByTask = new Map(
-        ready.map((node) => [
-          node.id,
-          buildCandidates(node, {
-            principal: identity.principal,
-            state,
-            now: this.now(),
-            parallelCapacity: this.policy.parallelCapacity,
-            ...(this.dependencies.executionPolicy
-              ? { policy: this.dependencies.executionPolicy }
-              : {}),
-          }),
-        ]),
-      );
       for (const assignment of plan.assignments) {
         const node = graph.nodes.find((item) => item.id === assignment.nodeId);
         const built = candidatesByTask.get(assignment.nodeId) ?? [];
         await this.record(identity, "routing_decision", {
+          decisionId: decisionIdFor(identity.runId, index, assignment.nodeId),
           taskId: assignment.nodeId,
           disposition: assignment.disposition,
           placement: assignment.placement,
+          shape: plan.shape,
+          wave: assignment.wave,
           declaredUtilityGain: node?.hints?.expectedUtilityGain ?? null,
           declaredIncrementalCost: node?.hints?.expectedIncrementalCost ?? null,
           declaredIsolationPreference: node?.hints?.isolationPreference ?? null,
+          // DECLARED, per task rather than per candidate: the same estimate is
+          // weighed against every placement.
+          estimatedTokens: node?.estimatedTokens ?? null,
           authorityIsolationGain: assignment.authorityIsolationGain,
           delegationValue: assignment.delegationValue,
           delegationThreshold: assignment.delegationThreshold,
-          runPressure,
-          shape: plan.shape,
-          wave: assignment.wave,
+          // Recorded once for the decision rather than repeated per candidate:
+          // these are properties of the run at this moment, not of a candidate.
+          budget: {
+            effectiveTokensRemaining: effectiveRemaining(state),
+            runTokensRemaining: state.runState.maxTokens - state.runState.tokensUsed,
+            runPressure,
+            childSlotsRemaining: state.envelope.maxChildren - state.grantState.childCount,
+            depthRemaining: state.envelope.depth,
+            parallelCapacity: this.policy.parallelCapacity,
+          },
           candidates: built.map((candidate) => ({
             placement: candidate.placement,
             authorityLegal: candidate.authority.legal,
             authorityReason: candidate.authority.reason,
-            budgetAffordable: candidate.budget.affordable,
+            constraintAxis: candidate.authority.constraintAxis,
+            hardEligible: candidate.hardEligible,
+            planningFit: candidate.planningFit,
             budgetReason: candidate.budget.reason,
             structurallyNarrower: candidate.authority.structurallyNarrower,
-            feasible: candidate.feasible,
+            routableNow: candidate.routableNow,
             effectiveResources: candidate.authority.effectiveResources,
             effectiveActions: candidate.authority.effectiveActions,
-            estimatedTokens: candidate.budget.estimatedTokens,
-            effectiveTokensRemaining: candidate.budget.effectiveTokensRemaining,
-            childSlotsRemaining: candidate.budget.childSlotsRemaining,
-            depthRemaining: candidate.budget.depthRemaining,
           })),
         });
         if (assignment.disposition === "DEGRADE") {
@@ -490,7 +522,13 @@ export class ExecutionEngine {
 
         const results = await Promise.all(
           members.map((member) =>
-            this.dispatch(member.node, member.assignment, identity, artifacts),
+            this.dispatch(
+              member.node,
+              member.assignment,
+              identity,
+              artifacts,
+              decisionIdFor(identity.runId, index, member.node.id),
+            ),
           ),
         );
 
@@ -614,6 +652,8 @@ export class ExecutionEngine {
     assignment: Assignment,
     identity: EngineIdentity,
     artifacts: ContextArtifact[],
+    /** The routing_decision this dispatch is carrying out. */
+    decisionId: string,
   ): Promise<{
     taskId: string;
     placement: string;
@@ -724,6 +764,7 @@ export class ExecutionEngine {
       identity,
       "invocation_started",
       {
+        decisionId,
         invocationId,
         taskId: node.id,
         executorPrincipalId,
