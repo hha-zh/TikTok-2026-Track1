@@ -81,15 +81,14 @@ const POLICIES: Policy[] = [
   {
     id: "static_single",
     description: "Legal work always runs on the current principal.",
-    // An unreachable bar: no declared benefit can ever clear it, so any task
-    // that COULD be reused is reused. Delegate-only work stays delegated,
-    // because governance - not policy - decides what is legal.
-    router: { baseThreshold: Number.MAX_SAFE_INTEGER },
+    // A declared mode, not a threshold tuned into a corner. Delegate-only work
+    // stays delegated, because governance - not policy - decides what is legal.
+    router: { mode: "ALWAYS_REUSE" },
   },
   {
     id: "static_multi",
     description: "Fixed child topology: delegate and parallelise wherever legal.",
-    router: { baseThreshold: 0, pressureWeight: 0, parallelHeadroom: 1 },
+    router: { mode: "ALWAYS_DELEGATE", parallelHeadroom: 1 },
   },
   {
     id: "adaptive",

@@ -379,6 +379,62 @@ async function runTodo(burn: number, parallelCapacity = 2) {
   return { result, decisionFor };
 }
 
+describe("A static topology mode still obeys the hard gate", () => {
+  it("cannot delegate work the principal may only perform itself", async () => {
+    const { state, identity } = await harness();
+    // Exercisable-only: reuse is legal, delegation is not.
+    const node = task({
+      id: "metrics",
+      resources: [RESOURCE_METRICS],
+      actions: ["read"],
+      estimatedTokens: 100,
+    });
+    const plan = routeOne(node, candidatesFor(node, state, identity.principal), state, {
+      policy: { mode: "ALWAYS_DELEGATE" },
+    });
+    const assignment = plan.assignments[0];
+    expect(assignment?.disposition).toBe("RUN");
+    // The mode asked to expand. Authority refused, and authority wins.
+    expect(assignment?.placement).toBe("REUSE_CURRENT");
+  });
+
+  it("cannot reuse work the principal may only cause", async () => {
+    const { state, identity } = await harness();
+    const node = auditTask({ estimatedTokens: 100 });
+    const plan = routeOne(node, candidatesFor(node, state, identity.principal), state, {
+      policy: { mode: "ALWAYS_REUSE" },
+    });
+    const assignment = plan.assignments[0];
+    expect(assignment?.disposition).toBe("RUN");
+    expect(assignment?.placement).toBe("DELEGATE_SPECIALIST");
+  });
+
+  it("chooses statically only where the adaptive router would weigh", async () => {
+    const { store, ledger, identity } = await harness();
+    const engine = new ExecutionEngine({
+      store,
+      ledger,
+      executor: new TodoWorkspaceExecutor(store, ledger),
+      delegation: createTodoDelegationPort(store, ledger),
+      policy: { parallelCapacity: 2 },
+      routerPolicy: { mode: "ALWAYS_REUSE" },
+    });
+    const result = await engine.run(buildTodoGraph(), identity);
+    expect(result.outcome).toBe("COMPLETED");
+    const decisions = store
+      .snapshot()
+      .governanceEvents.filter((event) => event.kind === "routing_decision")
+      .map((event) => event.payload as unknown as { taskId: string; placement: string | null });
+    // Both planners were delegatable and were reused: a policy choice.
+    expect(
+      decisions.find((item) => item.taskId === TASK_UI_PLAN)?.placement,
+    ).toBe("REUSE_CURRENT");
+    expect(
+      decisions.find((item) => item.taskId === TASK_TEST_PLAN)?.placement,
+    ).toBe("REUSE_CURRENT");
+  });
+});
+
 describe("AB-01 — Todo, relaxed budget", () => {
   it("delegates both planners and runs them in one parallel wave", async () => {
     const { result, decisionFor } = await runTodo(0);

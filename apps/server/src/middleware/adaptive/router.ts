@@ -37,7 +37,28 @@ export type Disposition =
  * logic; nothing here is fitted to observed data and no claim should be made
  * that it is.
  */
+/**
+ * How the WHO axis is decided.
+ *
+ * Exists so a static baseline is a declared mode rather than a knob abused
+ * into a corner (a threshold of MAX_SAFE_INTEGER reads as "adaptive, tuned
+ * absurdly", which is not what a baseline is). It governs the WHO axis ONLY.
+ *
+ * A mode NEVER creates or removes legality. It selects between placements
+ * that are already hard-eligible and routable; where only one placement is
+ * available the mode has nothing to choose and is not consulted.
+ */
+export type TopologyPolicyMode =
+  /** Weigh declared benefit against run pressure. */
+  | "ADAPTIVE"
+  /** Static single-agent baseline: never expand when reuse is available. */
+  | "ALWAYS_REUSE"
+  /** Static multi-agent baseline: always expand when expansion is available. */
+  | "ALWAYS_DELEGATE";
+
 export interface RouterPolicy {
+  /** WHO-axis mode. Never overrides authority or capacity. */
+  mode: TopologyPolicyMode;
   /** Score a delegation must clear at zero run-budget pressure. */
   baseThreshold: number;
   /** How much a fully consumed RUN budget raises that bar. */
@@ -65,6 +86,7 @@ export interface RouterPolicy {
 }
 
 export const DEFAULT_ROUTER_POLICY: RouterPolicy = {
+  mode: "ADAPTIVE",
   baseThreshold: 1,
   pressureWeight: 6,
   parallelHeadroom: 0.75,
@@ -379,7 +401,14 @@ export function route(inputs: RoutingInputs): RoutingPlan {
     let value: number | null = null;
     let threshold: number | null = null;
 
-    if (reuseFeasible && delegateFeasible) {
+    if (reuseFeasible && delegateFeasible && policy.mode === "ALWAYS_REUSE") {
+      // Static baseline. Both were available; the baseline declines to expand.
+      placement = "REUSE_CURRENT";
+      note = "static single-agent policy";
+    } else if (reuseFeasible && delegateFeasible && policy.mode === "ALWAYS_DELEGATE") {
+      placement = "DELEGATE_SPECIALIST";
+      note = "static multi-agent policy";
+    } else if (reuseFeasible && delegateFeasible) {
       value = delegationValue(node, policy, delegate);
       threshold = delegationThreshold(
         inputs.runBudgetRemaining,
