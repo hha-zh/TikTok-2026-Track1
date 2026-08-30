@@ -63,6 +63,7 @@ export type GraphProblem =
   | { kind: "duplicate_id"; nodeId: string }
   | { kind: "unknown_dependency"; nodeId: string; dependsOn: string }
   | { kind: "unproducible_artifact"; nodeId: string; artifact: string }
+  | { kind: "duplicate_artifact_producer"; artifact: string; nodeIds: string[] }
   | { kind: "cycle"; nodeIds: string[] };
 
 export type GraphValidation = { ok: true } | { ok: false; problems: GraphProblem[] };
@@ -76,7 +77,25 @@ export function validateGraph(graph: TaskGraph): GraphValidation {
     seen.add(node.id);
   }
 
-  const producible = new Set(graph.nodes.flatMap((node) => node.producedArtifacts));
+  // One producer per artifact name. Alternative producers would make the
+  // ordering edges ambiguous - the cycle pass below treats every producer as a
+  // dependency - so the MVP requires the mapping to be a function.
+  const producersByArtifact = new Map<string, string[]>();
+  for (const node of graph.nodes) {
+    for (const artifact of node.producedArtifacts) {
+      producersByArtifact.set(artifact, [
+        ...(producersByArtifact.get(artifact) ?? []),
+        node.id,
+      ]);
+    }
+  }
+  for (const [artifact, nodeIds] of producersByArtifact) {
+    if (nodeIds.length > 1) {
+      problems.push({ kind: "duplicate_artifact_producer", artifact, nodeIds });
+    }
+  }
+
+  const producible = new Set(producersByArtifact.keys());
   for (const node of graph.nodes) {
     for (const dependency of node.dependsOn) {
       if (!seen.has(dependency)) {
@@ -92,12 +111,7 @@ export function validateGraph(graph: TaskGraph): GraphValidation {
 
   // Cycle detection over BOTH edge kinds: an artifact requirement is as real an
   // ordering constraint as an explicit dependency.
-  const producers = new Map<string, string[]>();
-  for (const node of graph.nodes) {
-    for (const artifact of node.producedArtifacts) {
-      producers.set(artifact, [...(producers.get(artifact) ?? []), node.id]);
-    }
-  }
+  const producers = producersByArtifact;
   const remaining = new Map(
     graph.nodes.map((node) => [
       node.id,
@@ -128,29 +142,43 @@ export interface GraphProgress {
   completed: ReadonlySet<string>;
   /** Dropped tasks. They settle the ordering edge but produce nothing. */
   skipped: ReadonlySet<string>;
+  /**
+   * Artifacts that ACTUALLY exist, committed by the engine after execution.
+   *
+   * The graph declares promises; this records reality. Deriving availability
+   * from "the task says completed, so its declared outputs must exist" would
+   * make the declaration its own evidence - a task could be marked complete
+   * having produced nothing and everything downstream would proceed against
+   * inputs that were never created.
+   */
+  artifacts: ReadonlySet<string>;
 }
 
 const EMPTY_PROGRESS: GraphProgress = {
   completed: new Set<string>(),
   skipped: new Set<string>(),
+  artifacts: new Set<string>(),
 };
 
-/**
- * Artifacts that actually exist: produced by COMPLETED tasks only.
- *
- * Derived rather than tracked separately so the graph stays the single source
- * of truth about what has been produced.
- */
+/** Artifacts the engine has actually committed. */
 export function availableArtifacts(
-  graph: TaskGraph,
+  _graph: TaskGraph,
   progress: GraphProgress = EMPTY_PROGRESS,
 ): Set<string> {
-  const available = new Set<string>();
-  for (const node of graph.nodes) {
-    if (!progress.completed.has(node.id)) continue;
-    for (const artifact of node.producedArtifacts) available.add(artifact);
-  }
-  return available;
+  return new Set(progress.artifacts);
+}
+
+/**
+ * Promised artifacts a finished task did not actually produce.
+ *
+ * The engine must consult this BEFORE marking a task completed: execute ->
+ * validate -> commit -> only then COMPLETED.
+ */
+export function missingPromisedArtifacts(
+  node: TaskSpec,
+  actuallyProduced: ReadonlySet<string>,
+): string[] {
+  return node.producedArtifacts.filter((artifact) => !actuallyProduced.has(artifact));
 }
 
 /**

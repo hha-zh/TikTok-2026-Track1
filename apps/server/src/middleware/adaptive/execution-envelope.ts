@@ -38,10 +38,19 @@ export interface ExecutionPolicy {
 export interface EffectiveBudgetView {
   grantRemaining: number;
   runRemaining: number;
-  /** min of the two. Mirrors Design §9; it does not re-decide it. */
+  /**
+   * min of the two. Mirrors Design §9; it does not re-decide it. This is the
+   * feasibility number — what the work can actually draw on.
+   */
   effectiveRemaining: number;
-  /** 0 when untouched, 1 when exhausted. Drives adaptive pressure only. */
-  pressure: number;
+  /**
+   * 1 - runRemaining / runCap. Scarcity of the RUN ceiling specifically.
+   *
+   * Deliberately NOT effectiveRemaining / runCap: a nearly exhausted per-grant
+   * cap says nothing about how much room the run has, and dividing the min by
+   * the run ceiling would report run pressure that does not exist.
+   */
+  runPressure: number;
 }
 
 export interface ExecutionEnvelope {
@@ -117,7 +126,7 @@ export function deriveExecutionEnvelope(input: {
       grantRemaining,
       runRemaining,
       effectiveRemaining,
-      pressure: runCap > 0 ? clamp01(1 - effectiveRemaining / runCap) : 1,
+      runPressure: runCap > 0 ? clamp01(1 - runRemaining / runCap) : 1,
     },
   };
 }

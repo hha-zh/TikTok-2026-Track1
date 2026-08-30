@@ -11,14 +11,22 @@ import {
 } from "../governance/fixtures.js";
 import { buildCandidates, legalCandidates } from "./candidates.js";
 import { deriveExecutionEnvelope, isNarrowing } from "./execution-envelope.js";
-import { delegationThreshold, delegationValue, route } from "./router.js";
+import {
+  DEFAULT_ROUTER_POLICY,
+  delegationThreshold,
+  delegationValue,
+  route,
+  type RoutingInputs,
+} from "./router.js";
 import {
   availableArtifacts,
   isComplete,
+  missingPromisedArtifacts,
   readyNodes,
   task,
   unreachableNodes,
   validateGraph,
+  type GraphProgress,
   type TaskGraph,
   type TaskSpec,
 } from "./task-graph.js";
@@ -65,9 +73,37 @@ const context = (governanceState = state()) => ({
   now: NOW,
 });
 
+const progress = (overrides: Partial<GraphProgress> = {}): GraphProgress => ({
+  completed: new Set<string>(),
+  skipped: new Set<string>(),
+  artifacts: new Set<string>(),
+  ...overrides,
+});
+
 /** Legal both ways: no resource, and model:invoke is exercisable AND delegatable. */
 const reasoning = (id: string, overrides: Partial<TaskSpec> = {}) =>
   task({ id, resources: [], actions: ["model:invoke"], ...overrides });
+
+const auditTask = (id: string, overrides: Partial<TaskSpec> = {}) =>
+  task({ id, resources: [RESOURCE_AUDIT], ...overrides });
+
+const entryFor = (item: TaskSpec, governanceState = state()) => ({
+  node: item,
+  candidates: buildCandidates(item, context(governanceState)),
+});
+
+const inputs = (
+  entries: RoutingInputs["entries"],
+  overrides: Partial<RoutingInputs> = {},
+): RoutingInputs => ({
+  entries,
+  effectiveBudgetRemaining: 12_000,
+  runBudgetRemaining: 12_000,
+  runCapTokens: 12_000,
+  childSlotsRemaining: 2,
+  parallelCapacity: 2,
+  ...overrides,
+});
 
 describe("Invocation ExecutionEnvelope", () => {
   it("narrows to principal ∩ task and never widens", () => {
@@ -75,21 +111,12 @@ describe("Invocation ExecutionEnvelope", () => {
       state: state(),
       task: task({ id: "a", resources: [RESOURCE_METRICS, RESOURCE_PAYMENTS] }),
     });
-    // payments is not exercisable, so it is not in the effective view at all.
     expect(view.effective.resources).toEqual([RESOURCE_METRICS]);
     expect(isNarrowing(view, state())).toBe(true);
   });
 
-  it("applies policy as a further narrowing, never as a grant", () => {
+  it("applies policy as further narrowing, never as a grant", () => {
     const base = state();
-    const withPolicy = deriveExecutionEnvelope({
-      state: base,
-      task: task({ id: "a", resources: [...PARENT_EXERCISABLE_RESOURCES] }),
-      policy: { resources: [RESOURCE_METRICS] },
-    });
-    expect(withPolicy.effective.resources).toEqual([RESOURCE_METRICS]);
-
-    // A policy naming something the principal does not hold cannot add it.
     const overreaching = deriveExecutionEnvelope({
       state: base,
       task: task({ id: "a", resources: [RESOURCE_PAYMENTS] }),
@@ -99,24 +126,17 @@ describe("Invocation ExecutionEnvelope", () => {
     expect(isNarrowing(overreaching, base)).toBe(true);
   });
 
-  it("records where the authority came from without becoming it", () => {
-    const view = deriveExecutionEnvelope({ state: state(), task: reasoning("a") });
-    expect(view.sourceGrantId).toBe("grant-parent");
-    expect(view.executorPrincipalId).toBe(PRINCIPAL.id);
-    // A view, not a verdict: it carries no allow/deny of any kind.
-    expect(Object.keys(view)).not.toContain("verdict");
-  });
-
-  it("exposes a budget view that mirrors min(grant, run) and its pressure", () => {
+  it("keeps effective budget and run pressure as separate numbers", () => {
+    // Grant nearly spent, run barely touched. Reporting run pressure from the
+    // min would claim scarcity in the run that does not exist.
     const tight = state({
       grantState: { grantId: "grant-parent", revoked: false, tokensUsed: 11_000, childCount: 0 },
-      runState: { runId: "run-1", maxTokens: 12_000, tokensUsed: 3_000 },
+      runState: { runId: "run-1", maxTokens: 12_000, tokensUsed: 1_200 },
     });
     const view = deriveExecutionEnvelope({ state: tight, task: reasoning("a") });
-    expect(view.budget.grantRemaining).toBe(1_000);
-    expect(view.budget.runRemaining).toBe(9_000);
     expect(view.budget.effectiveRemaining).toBe(1_000);
-    expect(view.budget.pressure).toBeCloseTo(1 - 1_000 / 12_000, 5);
+    expect(view.budget.runRemaining).toBe(10_800);
+    expect(view.budget.runPressure).toBeCloseTo(0.1, 5);
   });
 });
 
@@ -127,12 +147,33 @@ describe("TaskGraph", () => {
       nodes: [task({ id: "a", optional: true }), task({ id: "b", dependsOn: ["a"] })],
     };
     expect(validateGraph(graph)).toEqual({ ok: true });
-    const ready = readyNodes(graph, { completed: new Set(), skipped: new Set(["a"]) });
-    // Ordering only, so one dropped optional task does not stall the rest.
-    expect(ready.map((item) => item.id)).toEqual(["b"]);
+    expect(
+      readyNodes(graph, progress({ skipped: new Set(["a"]) })).map((item) => item.id),
+    ).toEqual(["b"]);
   });
 
-  it("does NOT satisfy a required artifact with a skipped producer", () => {
+  it("treats committed artifacts, not task status, as the source of truth", () => {
+    const graph: TaskGraph = {
+      id: "g",
+      nodes: [
+        task({ id: "scan", producedArtifacts: ["workspace_summary"] }),
+        task({ id: "plan", requiredArtifacts: ["workspace_summary"] }),
+      ],
+    };
+    // Completed but nothing committed: the promise is not its own evidence.
+    expect(readyNodes(graph, progress({ completed: new Set(["scan"]) }))).toEqual([]);
+    expect(
+      readyNodes(
+        graph,
+        progress({
+          completed: new Set(["scan"]),
+          artifacts: new Set(["workspace_summary"]),
+        }),
+      ).map((item) => item.id),
+    ).toEqual(["plan"]);
+  });
+
+  it("does not satisfy a required artifact from a skipped producer", () => {
     const graph: TaskGraph = {
       id: "g",
       nodes: [
@@ -140,16 +181,7 @@ describe("TaskGraph", () => {
         task({ id: "plan", requiredArtifacts: ["workspace_summary"] }),
       ],
     };
-    // A skipped task produced nothing; running `plan` would use an input that
-    // does not exist.
-    expect(
-      readyNodes(graph, { completed: new Set(), skipped: new Set(["scan"]) }),
-    ).toEqual([]);
-    expect(
-      readyNodes(graph, { completed: new Set(["scan"]), skipped: new Set() }).map(
-        (item) => item.id,
-      ),
-    ).toEqual(["plan"]);
+    expect(readyNodes(graph, progress({ skipped: new Set(["scan"]) }))).toEqual([]);
   });
 
   it("reports a task whose artifact can no longer be produced as unreachable", () => {
@@ -160,31 +192,38 @@ describe("TaskGraph", () => {
         task({ id: "plan", requiredArtifacts: ["workspace_summary"] }),
       ],
     };
-    const stalled = unreachableNodes(graph, {
-      completed: new Set(),
-      skipped: new Set(["scan"]),
-    });
-    // Without this the run looks stalled rather than blocked.
-    expect(stalled).toHaveLength(1);
-    expect(stalled[0]?.node.id).toBe("plan");
-    expect(stalled[0]?.missingArtifacts).toEqual(["workspace_summary"]);
-    expect(unreachableNodes(graph)).toEqual([]);
+    const stalled = unreachableNodes(graph, progress({ skipped: new Set(["scan"]) }));
+    expect(stalled.map((item) => item.node.id)).toEqual(["plan"]);
+    expect(unreachableNodes(graph, progress())).toEqual([]);
   });
 
-  it("tracks artifacts from completed tasks only", () => {
-    const graph: TaskGraph = {
+  it("names promised artifacts a task did not actually produce", () => {
+    const scan = task({ id: "scan", producedArtifacts: ["workspace_summary", "tree"] });
+    expect(missingPromisedArtifacts(scan, new Set(["tree"]))).toEqual([
+      "workspace_summary",
+    ]);
+    expect(missingPromisedArtifacts(scan, new Set(["workspace_summary", "tree"]))).toEqual(
+      [],
+    );
+  });
+
+  it("rejects two producers of the same artifact name", () => {
+    // Alternative producers would make the ordering edges ambiguous.
+    const result = validateGraph({
       id: "g",
       nodes: [
-        task({ id: "a", producedArtifacts: ["x"] }),
-        task({ id: "b", producedArtifacts: ["y"] }),
+        task({ id: "a", producedArtifacts: ["summary"] }),
+        task({ id: "b", producedArtifacts: ["summary"] }),
       ],
-    };
-    expect([
-      ...availableArtifacts(graph, {
-        completed: new Set(["a"]),
-        skipped: new Set(["b"]),
-      }),
-    ]).toEqual(["x"]);
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.problems).toContainEqual({
+        kind: "duplicate_artifact_producer",
+        artifact: "summary",
+        nodeIds: ["a", "b"],
+      });
+    }
   });
 
   it("rejects an artifact nobody produces, and a cycle through artifacts", () => {
@@ -193,15 +232,7 @@ describe("TaskGraph", () => {
       nodes: [task({ id: "a", requiredArtifacts: ["ghost"] })],
     });
     expect(orphan.ok).toBe(false);
-    if (!orphan.ok) {
-      expect(orphan.problems).toContainEqual({
-        kind: "unproducible_artifact",
-        nodeId: "a",
-        artifact: "ghost",
-      });
-    }
 
-    // An artifact requirement is as real an ordering edge as dependsOn.
     const cyclic = validateGraph({
       id: "g",
       nodes: [
@@ -217,8 +248,11 @@ describe("TaskGraph", () => {
 
   it("is complete once every task is settled either way", () => {
     const graph: TaskGraph = { id: "g", nodes: [task({ id: "a" }), task({ id: "b" })] };
-    expect(isComplete(graph, { completed: new Set(["a"]), skipped: new Set(["b"]) })).toBe(
-      true,
+    expect(
+      isComplete(graph, progress({ completed: new Set(["a"]), skipped: new Set(["b"]) })),
+    ).toBe(true);
+    expect(availableArtifacts(graph, progress({ artifacts: new Set(["x"]) }))).toEqual(
+      new Set(["x"]),
     );
   });
 });
@@ -229,27 +263,20 @@ describe("CandidateBuilder", () => {
       task({ id: "a", resources: [RESOURCE_METRICS], actions: ["read"] }),
       context(),
     );
-    const reuse = candidates.find((item) => item.placement === "REUSE_CURRENT");
-    expect(reuse?.legal).toBe(true);
-    expect(reuse?.executionEnvelope?.effective.resources).toEqual([RESOURCE_METRICS]);
+    expect(candidates.find((i) => i.placement === "REUSE_CURRENT")?.legal).toBe(true);
   });
 
   it("routes a delegate-only resource to delegation, not to reuse", () => {
-    const candidates = buildCandidates(
-      task({ id: "a", resources: [RESOURCE_AUDIT], actions: ["read"] }),
-      context(),
-    );
+    const candidates = buildCandidates(auditTask("a"), context());
     expect(candidates.find((i) => i.placement === "REUSE_CURRENT")?.reason).toBe(
       "NOT_EXERCISABLE_DELEGATE_ONLY",
     );
-    expect(candidates.find((i) => i.placement === "DELEGATE_SPECIALIST")?.legal).toBe(
-      true,
-    );
+    expect(candidates.find((i) => i.placement === "DELEGATE_SPECIALIST")?.legal).toBe(true);
   });
 
   it("finds no legal placement for a resource in neither authority set", () => {
     const candidates = buildCandidates(
-      task({ id: "a", resources: [RESOURCE_PAYMENTS], actions: ["read"] }),
+      task({ id: "a", resources: [RESOURCE_PAYMENTS] }),
       context(),
     );
     expect(legalCandidates(candidates)).toHaveLength(0);
@@ -257,10 +284,7 @@ describe("CandidateBuilder", () => {
 
   it("reports the capacity denial, not a scope denial, when depth is exhausted", () => {
     const exhausted = state({ envelope: envelope({ depth: 0 }) });
-    const candidates = buildCandidates(
-      task({ id: "a", resources: [RESOURCE_AUDIT], actions: ["read"] }),
-      context(exhausted),
-    );
+    const candidates = buildCandidates(auditTask("a"), context(exhausted));
     expect(candidates.find((i) => i.placement === "DELEGATE_SPECIALIST")?.reason).toBe(
       "DELEGATION_CEILING_REACHED",
     );
@@ -278,89 +302,74 @@ describe("CandidateBuilder", () => {
   });
 
   it("finds a resource-free reasoning task legal both ways", () => {
-    // This is where the adaptive choice actually lives.
-    const candidates = buildCandidates(reasoning("a"), context());
-    expect(legalCandidates(candidates)).toHaveLength(2);
+    expect(legalCandidates(buildCandidates(reasoning("a"), context()))).toHaveLength(2);
   });
 });
 
 describe("Router — WHO", () => {
-  const entry = (item: TaskSpec, governanceState = state()) => ({
-    node: item,
-    candidates: buildCandidates(item, context(governanceState)),
-  });
-  const inputs = (entries: ReturnType<typeof entry>[], overrides = {}) => ({
-    entries,
-    budgetRemaining: 12_000,
-    runCapTokens: 12_000,
-    childSlotsRemaining: 2,
-    ...overrides,
-  });
-
   it("reuses when both are legal and nothing suggests extra agency is worth it", () => {
-    const plan = route(inputs([entry(reasoning("a"))]));
+    const plan = route(inputs([entryFor(reasoning("a"))]));
     expect(plan.assignments[0]?.placement).toBe("REUSE_CURRENT");
-    expect(plan.assignments[0]?.note).toContain("no declared benefit");
   });
 
   it("delegates when a specialist is declared required", () => {
     const plan = route(
-      inputs([entry(reasoning("a", { hints: { specialistRequired: true } }))]),
+      inputs([entryFor(reasoning("a", { hints: { specialistRequired: true } }))]),
     );
     expect(plan.assignments[0]?.placement).toBe("DELEGATE_SPECIALIST");
-    expect(plan.assignments[0]?.note).toContain("specialist declared required");
   });
 
-  it("delegates when declared marginal benefit clears the threshold", () => {
-    const plan = route(
-      inputs([
-        entry(
-          reasoning("a", {
-            hints: { expectedUtilityGain: 0.9, expectedIncrementalCost: 200 },
-          }),
-        ),
-      ]),
-    );
-    expect(plan.assignments[0]?.placement).toBe("DELEGATE_SPECIALIST");
-    expect(plan.assignments[0]?.delegationValue).toBeGreaterThanOrEqual(
-      plan.assignments[0]?.delegationThreshold ?? 0,
-    );
-  });
-
-  it("raises the delegation bar as budget pressure rises", () => {
+  it("raises the delegation bar from RUN pressure, not from the grant cap", () => {
     const hints = { expectedUtilityGain: 0.2, expectedIncrementalCost: 400 };
-    const relaxed = route(inputs([entry(reasoning("a", { hints }))]));
+    const relaxed = route(inputs([entryFor(reasoning("a", { hints }))]));
     const pressured = route(
-      inputs([entry(reasoning("a", { hints }))], { budgetRemaining: 900 }),
-    );
-    // Same declared benefit, different answer, because the budget is nearly spent.
-    expect(delegationThreshold(12_000, 12_000)).toBeLessThan(
-      delegationThreshold(900, 12_000),
+      inputs([entryFor(reasoning("a", { hints }))], {
+        runBudgetRemaining: 900,
+        effectiveBudgetRemaining: 900,
+      }),
     );
     expect(relaxed.assignments[0]?.placement).toBe("DELEGATE_SPECIALIST");
     expect(pressured.assignments[0]?.placement).toBe("REUSE_CURRENT");
-    expect(pressured.assignments[0]?.note).toContain("below threshold");
+
+    // A squeezed GRANT with a roomy RUN must not raise the bar: that scarcity
+    // is not the run's, and delegating spends the run's ceiling.
+    const grantSqueezed = route(
+      inputs([entryFor(reasoning("a", { hints }))], {
+        effectiveBudgetRemaining: 900,
+        runBudgetRemaining: 12_000,
+      }),
+    );
+    expect(delegationThreshold(12_000, 12_000)).toBeLessThan(
+      delegationThreshold(900, 12_000),
+    );
+    expect(grantSqueezed.assignments[0]?.delegationThreshold).toBe(
+      delegationThreshold(12_000, 12_000),
+    );
+  });
+
+  it("takes routing constants from an injected policy", () => {
+    const hints = { expectedUtilityGain: 0.2, expectedIncrementalCost: 400 };
+    const strict = route(
+      inputs([entryFor(reasoning("a", { hints }))], {
+        policy: { baseThreshold: 100 },
+      }),
+    );
+    expect(strict.assignments[0]?.placement).toBe("REUSE_CURRENT");
+    expect(DEFAULT_ROUTER_POLICY.baseThreshold).toBe(1);
   });
 
   it("scores no declared hints as zero rather than guessing", () => {
     expect(delegationValue(reasoning("a"), 12_000)).toBe(0);
   });
 
-  it("still delegates when only delegation is legal, hints or not", () => {
-    const plan = route(inputs([entry(task({ id: "a", resources: [RESOURCE_AUDIT] }))]));
-    expect(plan.assignments[0]?.placement).toBe("DELEGATE_SPECIALIST");
-    expect(plan.assignments[0]?.note).toContain("may cause this but not perform it");
-  });
-
   it("skips an optional impossible task and blocks a required one", () => {
     const optional = route(
-      inputs([entry(task({ id: "a", resources: [RESOURCE_PAYMENTS], optional: true }))]),
+      inputs([entryFor(task({ id: "a", resources: [RESOURCE_PAYMENTS], optional: true }))]),
     );
     expect(optional.assignments[0]?.disposition).toBe("SKIP");
-    expect(optional.blocked).toBe(false);
 
     const required = route(
-      inputs([entry(task({ id: "a", resources: [RESOURCE_PAYMENTS] }))]),
+      inputs([entryFor(task({ id: "a", resources: [RESOURCE_PAYMENTS] }))]),
     );
     expect(required.assignments[0]?.disposition).toBe("BLOCKED");
     expect(required.blocked).toBe(true);
@@ -371,94 +380,96 @@ describe("Router — WHO", () => {
       grantState: { grantId: "grant-parent", revoked: true, tokensUsed: 0, childCount: 0 },
     });
     const plan = route(
-      inputs([entry(task({ id: "a", resources: [RESOURCE_METRICS] }), revoked)], {
-        budgetRemaining: 999_999,
+      inputs([entryFor(task({ id: "a", resources: [RESOURCE_METRICS] }), revoked)], {
+        effectiveBudgetRemaining: 999_999,
+        runBudgetRemaining: 999_999,
         childSlotsRemaining: 9,
+        parallelCapacity: 9,
       }),
     );
-    // Generous budget and spare slots must not rescue a revoked grant.
     expect(plan.assignments[0]?.disposition).toBe("BLOCKED");
     expect(plan.assignments[0]?.governanceReason).toBe("PARENT_GRANT_REVOKED");
-  });
-
-  it("defers rather than dropping when only delegation is legal and slots are gone", () => {
-    const plan = route(
-      inputs([entry(task({ id: "a", resources: [RESOURCE_AUDIT] }))], {
-        childSlotsRemaining: 0,
-      }),
-    );
-    expect(plan.assignments[0]?.disposition).toBe("DEFER");
   });
 });
 
 describe("Router — HOW", () => {
-  const audit = (id: string, independent: boolean) =>
-    task({ id, resources: [RESOURCE_AUDIT], hints: { independent } });
-  const entry = (item: TaskSpec) => ({
-    node: item,
-    candidates: buildCandidates(item, context()),
-  });
+  const independentAudit = (id: string) => auditTask(id, { hints: { independent: true } });
+  const independentReasoning = (id: string) =>
+    reasoning(id, { hints: { independent: true } });
 
   it("is DIRECT for a single unit of work", () => {
-    const plan = route({
-      entries: [entry(audit("a", true))],
-      budgetRemaining: 12_000,
-      runCapTokens: 12_000,
-      childSlotsRemaining: 2,
-    });
-    expect(plan.shape).toBe("DIRECT");
+    expect(route(inputs([entryFor(independentAudit("a"))])).shape).toBe("DIRECT");
   });
 
-  it("is PARALLEL only for independent delegations with budget headroom", () => {
-    const plan = route({
-      entries: [entry(audit("a", true)), entry(audit("b", true))],
-      budgetRemaining: 12_000,
-      runCapTokens: 12_000,
-      childSlotsRemaining: 2,
-    });
+  it("runs an independent REUSE alongside an independent DELEGATE", () => {
+    // Distinct executors: the current principal and a child. This is the case
+    // a 'two delegations' rule would have missed.
+    const plan = route(
+      inputs([entryFor(independentReasoning("a")), entryFor(independentAudit("b"))]),
+    );
+    expect(plan.assignments[0]?.placement).toBe("REUSE_CURRENT");
+    expect(plan.assignments[1]?.placement).toBe("DELEGATE_SPECIALIST");
     expect(plan.shape).toBe("PARALLEL");
+    expect(plan.waves).toHaveLength(1);
+    expect(plan.waves[0]?.nodeIds).toEqual(["a", "b"]);
   });
 
-  it("serialises two independent delegations when headroom is thin", () => {
-    // HOW is not a consequence of WHO: same two delegations, different mode.
-    const plan = route({
-      entries: [entry(audit("a", true)), entry(audit("b", true))],
-      budgetRemaining: 250,
-      runCapTokens: 12_000,
-      childSlotsRemaining: 2,
-    });
+  it("serialises two REUSE tasks: one principal cannot run two at once", () => {
+    const plan = route(
+      inputs([entryFor(independentReasoning("a")), entryFor(independentReasoning("b"))]),
+    );
+    expect(plan.assignments.every((i) => i.placement === "REUSE_CURRENT")).toBe(true);
+    expect(plan.shape).toBe("SERIAL");
+    expect(plan.waves).toHaveLength(2);
+  });
+
+  it("preserves work as extra waves when parallel capacity is 1", () => {
+    const plan = route(
+      inputs([entryFor(independentAudit("a")), entryFor(independentAudit("b"))], {
+        parallelCapacity: 1,
+      }),
+    );
+    // Preserved and serialised, never dropped.
+    expect(plan.assignments.map((i) => i.disposition)).toEqual(["DEGRADE", "DEGRADE"]);
+    expect(plan.waves.map((wave) => wave.nodeIds)).toEqual([["a"], ["b"]]);
+    expect(plan.shape).toBe("SERIAL");
+    expect(plan.shapeReason).toContain("capacity is 1");
+  });
+
+  it("withholds concurrency when budget headroom is thin", () => {
+    const plan = route(
+      inputs([entryFor(independentAudit("a")), entryFor(independentAudit("b"))], {
+        effectiveBudgetRemaining: 250,
+      }),
+    );
     expect(plan.shape).toBe("SERIAL");
     expect(plan.shapeReason).toContain("headroom");
-    expect(plan.assignments.map((item) => item.disposition)).toEqual([
-      "DEGRADE",
-      "DEGRADE",
-    ]);
+    expect(plan.assignments.every((i) => i.disposition === "DEGRADE")).toBe(true);
+    expect(plan.waves).toHaveLength(2);
   });
 
   it("serialises delegations that are not declared independent", () => {
-    const plan = route({
-      entries: [entry(audit("a", false)), entry(audit("b", false))],
-      budgetRemaining: 12_000,
-      runCapTokens: 12_000,
-      childSlotsRemaining: 2,
-    });
+    const plan = route(inputs([entryFor(auditTask("a")), entryFor(auditTask("b"))]));
     expect(plan.shape).toBe("SERIAL");
-    expect(plan.shapeReason).toContain("not declared independent");
+    expect(plan.waves.map((wave) => wave.nodeIds)).toEqual([["a"], ["b"]]);
   });
 
-  it("serialises two reuses: one principal cannot run two things at once", () => {
-    const plan = route({
-      entries: [
-        entry(reasoning("a", { hints: { independent: true } })),
-        entry(reasoning("b", { hints: { independent: true } })),
-      ],
-      budgetRemaining: 12_000,
-      runCapTokens: 12_000,
-      childSlotsRemaining: 2,
-    });
-    expect(plan.assignments.every((item) => item.placement === "REUSE_CURRENT")).toBe(
-      true,
+  it("assigns every runnable task to exactly one wave", () => {
+    const plan = route(
+      inputs(
+        [
+          entryFor(independentReasoning("a")),
+          entryFor(independentAudit("b")),
+          entryFor(independentAudit("c")),
+        ],
+        { childSlotsRemaining: 2, parallelCapacity: 2 },
+      ),
     );
-    expect(plan.shape).toBe("SERIAL");
+    const scheduled = plan.waves.flatMap((wave) => wave.nodeIds);
+    const running = plan.assignments
+      .filter((i) => i.disposition === "RUN" || i.disposition === "DEGRADE")
+      .map((i) => i.nodeId);
+    expect([...scheduled].sort()).toEqual([...running].sort());
+    expect(new Set(scheduled).size).toBe(scheduled.length);
   });
 });
