@@ -32,7 +32,7 @@
   },
   "authorizeOverhead": {
     "samples": 200,
-    "medianMicros": 0.5,
+    "medianMicros": 0.459,
     "provenance": "OBSERVED"
   },
   "benignSuite": {
@@ -42,8 +42,8 @@
     "provenance": "OBSERVED"
   },
   "caseManifest": {
-    "total": 25,
-    "proven": 24,
+    "total": 32,
+    "proven": 31,
     "partial": 1,
     "notRun": 0,
     "knownLimitations": [
@@ -52,6 +52,71 @@
         "mediatedAt": "dispatch",
         "notMediatedAt": "individual model call inside a dispatch",
         "accounting": "post-hoc, from reported usage via tokens_consumed"
+      }
+    ]
+  },
+  "authorityBudgetInteraction": {
+    "note": "Feasible = Authorized AND Affordable. Neither axis rescues the other. Scenario language leads; AB identifiers are backend references.",
+    "rows": [
+      {
+        "scenario": "Todo — relaxed",
+        "backendCases": [
+          "AB-01"
+        ],
+        "reuseAuthority": "legal",
+        "delegateAuthority": "legal",
+        "budget": "healthy (12000 left)",
+        "selected": "DELEGATE_SPECIALIST"
+      },
+      {
+        "scenario": "Todo — pressured",
+        "backendCases": [
+          "AB-02"
+        ],
+        "reuseAuthority": "legal",
+        "delegateAuthority": "legal",
+        "budget": "healthy (1400 left)",
+        "selected": "REUSE_CURRENT"
+      },
+      {
+        "scenario": "Delegate-only incident",
+        "backendCases": [
+          "AB-03"
+        ],
+        "reuseAuthority": "NOT_EXERCISABLE_DELEGATE_ONLY",
+        "delegateAuthority": "legal",
+        "budget": "healthy (12000 left)",
+        "selected": "DELEGATE_SPECIALIST"
+      },
+      {
+        "scenario": "Incident + exhausted expansion",
+        "backendCases": [
+          "AB-04"
+        ],
+        "reuseAuthority": "NOT_EXERCISABLE_DELEGATE_ONLY",
+        "delegateAuthority": "MAX_CHILDREN_EXCEEDED",
+        "budget": "CHILD_CAPACITY_EXHAUSTED",
+        "selected": "BLOCKED"
+      },
+      {
+        "scenario": "No delegation authority",
+        "backendCases": [
+          "AB-05"
+        ],
+        "reuseAuthority": "legal",
+        "delegateAuthority": "CHILD_EXCEEDS_PARENT",
+        "budget": "healthy (12000 left)",
+        "selected": "REUSE_CURRENT"
+      },
+      {
+        "scenario": "Revoked grant",
+        "backendCases": [
+          "AB-06"
+        ],
+        "reuseAuthority": "PARENT_GRANT_REVOKED",
+        "delegateAuthority": "PARENT_GRANT_REVOKED",
+        "budget": "healthy (12000 left)",
+        "selected": "BLOCKED"
       }
     ]
   },
@@ -126,7 +191,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0,
-        "harnessWallClockMs": 33.57
+        "harnessWallClockMs": 39.25
       }
     },
     {
@@ -159,7 +224,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 27.37
+        "harnessWallClockMs": 29.97
       }
     },
     {
@@ -192,7 +257,7 @@
       "synthetic": {
         "fixtureTokensUsed": 11900,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 26.12
+        "harnessWallClockMs": 25.7
       }
     },
     {
@@ -225,7 +290,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 26.39
+        "harnessWallClockMs": 29.09
       }
     },
     {
@@ -258,7 +323,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 25.37
+        "harnessWallClockMs": 30.88
       }
     },
     {
@@ -291,7 +356,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 28.44
+        "harnessWallClockMs": 25.68
       }
     },
     {
@@ -324,7 +389,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0,
-        "harnessWallClockMs": 39.93
+        "harnessWallClockMs": 53.82
       }
     },
     {
@@ -357,7 +422,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 50.32
+        "harnessWallClockMs": 54.67
       }
     },
     {
@@ -390,7 +455,7 @@
       "synthetic": {
         "fixtureTokensUsed": 11900,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 42.51
+        "harnessWallClockMs": 49.91
       }
     },
     {
@@ -423,7 +488,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 44.27
+        "harnessWallClockMs": 52.49
       }
     },
     {
@@ -455,7 +520,7 @@
       "synthetic": {
         "fixtureTokensUsed": 1100,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 39.06
+        "harnessWallClockMs": 46.63
       }
     },
     {
@@ -488,7 +553,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 45.64
+        "harnessWallClockMs": 43.09
       }
     },
     {
@@ -521,7 +586,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0,
-        "harnessWallClockMs": 28.52
+        "harnessWallClockMs": 31.35
       }
     },
     {
@@ -554,7 +619,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 31.5
+        "harnessWallClockMs": 44.09
       }
     },
     {
@@ -587,7 +652,7 @@
       "synthetic": {
         "fixtureTokensUsed": 11900,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 16.21
+        "harnessWallClockMs": 22.76
       }
     },
     {
@@ -620,7 +685,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 20.37
+        "harnessWallClockMs": 35.24
       }
     },
     {
@@ -652,7 +717,7 @@
       "synthetic": {
         "fixtureTokensUsed": 1100,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 15.21
+        "harnessWallClockMs": 20.64
       }
     },
     {
@@ -685,7 +750,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 21.79
+        "harnessWallClockMs": 43.03
       }
     }
   ]

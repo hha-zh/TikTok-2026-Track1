@@ -19,7 +19,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { JsonStore } from "../store.js";
 import { ExecutionEngine } from "../middleware/adaptive/execution-engine.js";
-import type { RouterPolicy } from "../middleware/adaptive/router.js";
+import { route, type RouterPolicy } from "../middleware/adaptive/router.js";
 import { GovernanceLedger } from "../middleware/evidence/ledger.js";
 import { authorize } from "../middleware/governance/authorize.js";
 import {
@@ -44,6 +44,10 @@ import {
   TASK_UI_PLAN,
 } from "../workload/todo/graph.js";
 import { seedTodoWorkload, TODO_DELEGATABLE_RESOURCES } from "../workload/todo/seed.js";
+import { buildCandidates } from "../middleware/adaptive/candidates.js";
+import { task, type TaskSpec } from "../middleware/adaptive/task-graph.js";
+import type { GovernanceState } from "../middleware/governance/types.js";
+import { RESOURCE_AUDIT } from "../middleware/governance/fixtures.js";
 import { ALL_CASES, MODEL_CROSSING_LIMITATION } from "./case-manifest.js";
 
 const roots: string[] = [];
@@ -288,6 +292,154 @@ async function runCase(policy: Policy, scenario: Scenario) {
 type CaseResult = Awaited<ReturnType<typeof runCase>>;
 
 // ---------------------------------------------------------------------------
+// Authority x Budget — scenario-oriented rows
+// ---------------------------------------------------------------------------
+
+interface InteractionRow {
+  scenario: string;
+  backendCases: string[];
+  reuseAuthority: string;
+  delegateAuthority: string;
+  budget: string;
+  selected: string;
+}
+
+/**
+ * One row per concrete scenario.
+ *
+ * Scenario language leads; the AB identifiers are backend references beneath
+ * it, not the narrative.
+ */
+async function interactionRows(): Promise<InteractionRow[]> {
+  const rows: InteractionRow[] = [];
+
+  const probe = async (
+    scenario: string,
+    backendCases: string[],
+    node: TaskSpec,
+    setup: { burn?: number; childrenUsed?: number; revoked?: boolean } = {},
+  ) => {
+    const root = await mkdtemp(path.join(tmpdir(), "phase6-interaction-"));
+    roots.push(root);
+    const store = new JsonStore(path.join(root, "db.json"));
+    await store.initialize();
+    await seedGovernanceFixtures(store);
+    await seedTodoWorkload(store);
+    const ledger = new GovernanceLedger(store);
+    const governed = await startGovernedRun(store, ledger, {
+      runId: "run-1",
+      additionalDelegatableResources: TODO_DELEGATABLE_RESOURCES,
+    });
+    if (setup.burn) {
+      await ledger.appendEvent(
+        "tokens_consumed",
+        {
+          inputTokens: setup.burn,
+          cachedInputTokens: 0,
+          outputTokens: 0,
+          totalTokens: setup.burn,
+        },
+        {
+          runId: "run-1",
+          grantId: governed.envelope.id,
+          principalId: governed.principal.id,
+        },
+      );
+    }
+    await store.mutate((database) => {
+      const grantState = database.grantStates.find(
+        (item) => item.grantId === governed.envelope.id,
+      );
+      if (!grantState) return;
+      if (setup.childrenUsed !== undefined) grantState.childCount = setup.childrenUsed;
+      if (setup.revoked) grantState.revoked = true;
+    });
+    const resolution = resolveGrant(
+      {
+        principalId: governed.principal.id,
+        grantId: governed.envelope.id,
+        runId: "run-1",
+      },
+      store,
+    );
+    if (!resolution.ok) throw new Error("resolve failed");
+    const state: GovernanceState = resolution.state;
+    const candidates = buildCandidates(node, {
+      principal: governed.principal,
+      state,
+      now: new Date().toISOString(),
+      parallelCapacity: 2,
+    });
+    const plan = route({
+      entries: [{ node, candidates }],
+      effectiveBudgetRemaining: Math.min(
+        state.envelope.maxTokens - state.grantState.tokensUsed,
+        state.runState.maxTokens - state.runState.tokensUsed,
+      ),
+      runBudgetRemaining: state.runState.maxTokens - state.runState.tokensUsed,
+      runCapTokens: state.runState.maxTokens,
+      childSlotsRemaining: state.envelope.maxChildren - state.grantState.childCount,
+      parallelCapacity: 2,
+    });
+    const reuse = candidates.find((item) => item.placement === "REUSE_CURRENT");
+    const delegate = candidates.find((item) => item.placement === "DELEGATE_SPECIALIST");
+    const assignment = plan.assignments[0];
+    rows.push({
+      scenario,
+      backendCases,
+      reuseAuthority: reuse?.authority.legal ? "legal" : (reuse?.authority.reason ?? "?"),
+      delegateAuthority: delegate?.authority.legal
+        ? "legal"
+        : (delegate?.authority.reason ?? "?"),
+      budget:
+        (delegate?.budget.affordable ?? false)
+          ? `healthy (${delegate?.budget.effectiveTokensRemaining} left)`
+          : (delegate?.budget.reason ?? "?"),
+      selected:
+        assignment?.placement ?? assignment?.disposition ?? "n/a",
+    });
+  };
+
+  const planner = (hints: TaskSpec["hints"]) =>
+    task({
+      id: "ui_plan",
+      resources: [],
+      actions: ["model:invoke"],
+      estimatedTokens: 400,
+      delegatedAuthority: {
+        resources: ["UIPlan"],
+        actions: ["model:invoke", "artifact:create", "artifact:publish"],
+      },
+      hints,
+    });
+  const planningHints = { expectedUtilityGain: 0.45, expectedIncrementalCost: 300 };
+  const incident = task({
+    id: "incident_review",
+    resources: [RESOURCE_AUDIT],
+    actions: ["read"],
+    estimatedTokens: 200,
+  });
+
+  await probe("Todo — relaxed", ["AB-01"], planner(planningHints));
+  await probe("Todo — pressured", ["AB-02"], planner(planningHints), { burn: 10_600 });
+  await probe("Delegate-only incident", ["AB-03"], incident);
+  await probe("Incident + exhausted expansion", ["AB-04"], incident, { childrenUsed: 2 });
+  await probe(
+    "No delegation authority",
+    ["AB-05"],
+    task({
+      id: "read_metrics",
+      resources: [RESOURCE_METRICS],
+      actions: ["read"],
+      estimatedTokens: 100,
+    }),
+  );
+  await probe("Revoked grant", ["AB-06"], planner(planningHints), { revoked: true });
+
+  return rows;
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -367,6 +519,8 @@ describe("Phase 6 baseline comparison", () => {
     ];
     const falseDenies = benign.filter((entry) => !entry.allowed);
 
+    const interaction = await interactionRows();
+
     const summary = {
       generatedBy: "apps/server/src/phase6/measurement.test.ts",
       runtimeLayers: {
@@ -417,6 +571,12 @@ describe("Phase 6 baseline comparison", () => {
         notRun: ALL_CASES.filter((entry) => entry.status === "NOT_RUN").length,
         knownLimitations: [MODEL_CROSSING_LIMITATION],
       },
+      authorityBudgetInteraction: {
+        note:
+          "Feasible = Authorized AND Affordable. Neither axis rescues the other. " +
+          "Scenario language leads; AB identifiers are backend references.",
+        rows: interaction,
+      },
       policies: POLICIES.map(({ id, description }) => ({ id, description })),
       scenarios: SCENARIOS.map(({ id, description }) => ({ id, description })),
       results,
@@ -430,7 +590,7 @@ describe("Phase 6 baseline comparison", () => {
     );
     await writeFile(
       path.join(repoRoot, "reports", "PHASE6.md"),
-      renderMarkdown(summary, results),
+      renderMarkdown(summary, results, interaction),
       "utf8",
     );
 
@@ -483,7 +643,15 @@ describe("Phase 6 baseline fairness", () => {
 function renderMarkdown(
   summary: { authorizeOverhead: { medianMicros: number; samples: number }; benignSuite: { cases: number; falseDenies: number } },
   results: CaseResult[],
+  interaction: InteractionRow[],
 ): string {
+  const interactionRowsMd = interaction
+    .map(
+      (row) =>
+        `| ${row.scenario} | ${row.reuseAuthority} | ${row.delegateAuthority} | ` +
+        `${row.budget} | ${row.selected} | ${row.backendCases.join(", ")} |`,
+    )
+    .join("\n");
   const rows = results
     .map(
       (entry) =>
@@ -505,6 +673,20 @@ Generated by \`apps/server/src/phase6/measurement.test.ts\`. Regenerate with
 | deterministic middleware semantics | PROVEN |
 | real AgentService / RunnerRequest crossing | PROVEN |
 | external Container / Codex / Ark execution | NOT PROVEN until actually run |
+
+## Authority × Budget interaction
+
+Authority defines WHERE execution may go. Budget defines HOW FAR it may expand.
+Adaptive routing decides WHETHER additional agency is worth using inside both.
+
+    Feasible(candidate) = Authorized(candidate | Γ) AND Affordable(candidate | B)
+
+Neither axis rescues the other: spare budget never creates permission, and
+permission never creates capacity.
+
+| scenario | reuse authority | delegate authority | budget | selected | backend case |
+| --- | --- | --- | --- | --- | --- |
+${interactionRowsMd}
 
 ## Baseline comparison
 

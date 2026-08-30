@@ -26,6 +26,7 @@ import type { AuthenticatedIdentity } from "../middleware/governance/identity.js
 import {
   ADAPTIVE_RUNTIME_CASES,
   ALL_CASES,
+  AUTHORITY_BUDGET_CASES,
   BOUNCER_BOUNDARIES,
   HARD_GOVERNANCE_CASES,
   MODEL_CROSSING_LIMITATION,
@@ -76,6 +77,9 @@ describe("Phase 6 manifest integrity", () => {
     );
     expect(ADAPTIVE_RUNTIME_CASES.map((entry) => entry.id)).toEqual(
       Array.from({ length: 10 }, (_, index) => `AR-${String(index + 1).padStart(2, "0")}`),
+    );
+    expect(AUTHORITY_BUDGET_CASES.map((entry) => entry.id)).toEqual(
+      Array.from({ length: 7 }, (_, index) => `AB-${String(index + 1).padStart(2, "0")}`),
     );
   });
 
