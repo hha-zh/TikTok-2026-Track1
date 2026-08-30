@@ -33,6 +33,28 @@ export type LiveDelegationResult =
   | { ok: true; handle: ChildHandle }
   | { ok: false; statusCode: 400 | 403 | 503; reason: ReasonCode };
 
+/**
+ * A governed child that exists but has NOT been dispatched yet.
+ *
+ * Splitting preparation from dispatch is what lets the Adaptive Runtime derive
+ * the child's invocation envelope and project its context BEFORE the Agent
+ * starts work. Launching atomically meant the child began executing before
+ * anything had decided what it was allowed to see.
+ *
+ * `runtimeRunToken` is held in memory for the caller to hand to
+ * `sendGovernedMessage`. It is never persisted.
+ */
+export interface PreparedChild {
+  childPrincipalId: string;
+  childAgentId: string;
+  grantId: string;
+  runtimeRunToken: string;
+}
+
+export type PrepareChildResult =
+  | { ok: true; prepared: PreparedChild }
+  | { ok: false; statusCode: 400 | 403 | 503; reason: ReasonCode };
+
 export interface DelegatedAgentLauncherDependencies {
   config: AppConfig;
   store: JsonStore;
@@ -46,11 +68,28 @@ export interface DelegatedAgentLauncherDependencies {
 export class DelegatedAgentLauncher {
   constructor(private readonly dependencies: DelegatedAgentLauncherDependencies) {}
 
+  /**
+   * Atomic convenience API, unchanged for existing callers: prepare, then
+   * dispatch immediately.
+   */
   async launch(
     identity: AgentIdentity,
     authority: ChildEnvelopeRequest,
     task: string,
   ): Promise<LiveDelegationResult> {
+    const prepared = await this.prepare(identity, authority);
+    if (!prepared.ok) return prepared;
+    return this.dispatch(identity, prepared.prepared, task);
+  }
+
+  /**
+   * Create the governed child - grant, principal, Agent, workspace, token -
+   * WITHOUT starting any work.
+   */
+  async prepare(
+    identity: AgentIdentity,
+    authority: ChildEnvelopeRequest,
+  ): Promise<PrepareChildResult> {
     if (this.dependencies.config.runtimeProvider !== "container") {
       return { ok: false, statusCode: 503, reason: "MALFORMED_INPUT" };
     }
@@ -89,22 +128,13 @@ export class DelegatedAgentLauncher {
         grantId: envelope.id,
         exp: tokenExpiry,
       });
-      const { run } = await this.dependencies.agents.sendGovernedMessage(
-        childAgent.id,
-        task,
-        {
-          runtimeRunToken,
-          onExecutionFailure: () =>
-            this.revokeFailedChild(identity, childPrincipalId, grantId),
-        },
-      );
       return {
         ok: true,
-        handle: {
+        prepared: {
           childPrincipalId: principal.id,
           childAgentId: childAgent.id,
           grantId: envelope.id,
-          status: run.status,
+          runtimeRunToken,
         },
       };
     } catch {
@@ -112,6 +142,54 @@ export class DelegatedAgentLauncher {
       if (childAgent) {
         await this.dependencies.agents.deleteAgent(childAgent.id).catch(() => undefined);
       }
+      return { ok: false, statusCode: 503, reason: "MALFORMED_INPUT" };
+    }
+  }
+
+  /**
+   * Start the prepared child's work.
+   *
+   * The caller has had its chance to derive the invocation envelope and
+   * project context in between, so `task` is the bounded packet the child is
+   * actually meant to see.
+   */
+  async dispatch(
+    identity: AgentIdentity,
+    prepared: PreparedChild,
+    task: string,
+  ): Promise<LiveDelegationResult> {
+    try {
+      const { run } = await this.dependencies.agents.sendGovernedMessage(
+        prepared.childAgentId,
+        task,
+        {
+          runtimeRunToken: prepared.runtimeRunToken,
+          onExecutionFailure: () =>
+            this.revokeFailedChild(
+              identity,
+              prepared.childPrincipalId,
+              prepared.grantId,
+            ),
+        },
+      );
+      return {
+        ok: true,
+        handle: {
+          childPrincipalId: prepared.childPrincipalId,
+          childAgentId: prepared.childAgentId,
+          grantId: prepared.grantId,
+          status: run.status,
+        },
+      };
+    } catch {
+      await this.revokeFailedChild(
+        identity,
+        prepared.childPrincipalId,
+        prepared.grantId,
+      );
+      await this.dependencies.agents
+        .deleteAgent(prepared.childAgentId)
+        .catch(() => undefined);
       return { ok: false, statusCode: 503, reason: "MALFORMED_INPUT" };
     }
   }

@@ -33,6 +33,10 @@ import { RunTokenService } from "../../middleware/governance/run-token.js";
 import { DelegatedAgentLauncher } from "../../middleware/runtime/delegated-agent-launcher.js";
 import { ARTIFACT_TEST_PLAN, ARTIFACT_UI_PLAN } from "./artifacts.js";
 import {
+  ARTIFACT_IMPLEMENTATION,
+  ARTIFACT_TEST_PLAN_RESULT,
+  ARTIFACT_UI_PLAN_RESULT,
+  ARTIFACT_WORKSPACE_SUMMARY,
   buildTodoGraph,
   TASK_IMPLEMENTATION,
   TASK_TEST_PLAN,
@@ -211,6 +215,63 @@ describe("Live AgentService integration", () => {
     await agents.drainActiveExecutions();
     const ordinary = runner.requests.at(-1);
     expect(ordinary?.runtimeRunToken).toBeUndefined();
+  });
+});
+
+describe("Live AgentService integration — projected context reaches the Agent", () => {
+  it("gives a delegated planner the workspace_summary it requires", async () => {
+    const { engine, identity, runner } = await liveHarness();
+    await engine.run(buildTodoGraph(), identity);
+    const prompt = requestFor(runner, TASK_UI_PLAN)?.prompt ?? "";
+    expect(prompt).toContain("CONTEXT:");
+    expect(prompt).toContain(ARTIFACT_WORKSPACE_SUMMARY);
+  });
+
+  it("gives it nothing the ContextBroker withheld", async () => {
+    const { engine, identity, runner } = await liveHarness();
+    await engine.run(buildTodoGraph(), identity);
+    const prompt = requestFor(runner, TASK_UI_PLAN)?.prompt ?? "";
+    // The sibling's plan and the parent's later output are not this task's.
+    expect(prompt).not.toContain(ARTIFACT_TEST_PLAN_RESULT);
+    expect(prompt).not.toContain(ARTIFACT_IMPLEMENTATION);
+    // A withheld artifact must leave no trace at all - not even its reason.
+    expect(prompt).not.toContain("NOT_REQUIRED");
+    expect(prompt).not.toContain("withheld");
+  });
+
+  it("gives implementation both published plans and no child raw output", async () => {
+    const { engine, identity, runner } = await liveHarness();
+    await engine.run(buildTodoGraph(), identity);
+    const prompt = requestFor(runner, TASK_IMPLEMENTATION)?.prompt ?? "";
+    expect(prompt).toContain(ARTIFACT_UI_PLAN_RESULT);
+    expect(prompt).toContain(ARTIFACT_TEST_PLAN_RESULT);
+    // Bounded published fields only - these came through the Return Gate.
+    expect(prompt).toContain("split_panel");
+    expect(prompt).toContain("core_and_edge");
+    // And nothing the children said.
+    expect(prompt).not.toContain("published");
+    expect(prompt).not.toContain("assistant");
+  });
+
+  it("sends a projected context packet on BOTH placements", async () => {
+    const { engine, identity, runner } = await liveHarness();
+    await engine.run(buildTodoGraph(), identity);
+    for (const taskId of [TASK_WORKSPACE_SCAN, TASK_UI_PLAN, TASK_IMPLEMENTATION]) {
+      expect(requestFor(runner, taskId)?.prompt).toContain("CONTEXT:");
+    }
+    // workspace_scan requires nothing, so its packet is empty rather than absent.
+    expect(requestFor(runner, TASK_WORKSPACE_SCAN)?.prompt).toContain(
+      '{"artifacts":[]}',
+    );
+  });
+
+  it("prepares the child before dispatching it, not at delegation time", async () => {
+    const { engine, identity, runtime } = await liveHarness();
+    await engine.run(buildTodoGraph(), identity);
+    // Every prepared child was explicitly dispatched by the executor, after
+    // the engine had projected its context.
+    expect(runtime.launched).toHaveLength(2);
+    expect(runtime.launched.every((child) => child.dispatched)).toBe(true);
   });
 });
 

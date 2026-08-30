@@ -644,21 +644,6 @@ export class ExecutionEngine {
     // Real ancestry from the grant chain, so a delegated child can be briefed
     // with what its parent produced while nothing flows back up without the
     // Return Gate.
-    await this.record(
-      identity,
-      "invocation_started",
-      {
-        invocationId,
-        taskId: node.id,
-        executorPrincipalId,
-        sourceGrantId: executorGrantId,
-        effectiveResources: [...envelope.effective.resources],
-        effectiveActions: [...envelope.effective.actions],
-      },
-      executorGrantId,
-      executorPrincipalId,
-    );
-
     const context = projectContext(
       node,
       envelope,
@@ -681,11 +666,29 @@ export class ExecutionEngine {
       executorPrincipalId,
     );
     if (context.missingRequired.length > 0) {
+      // context_projected above still stands: a projection that blocked a
+      // dispatch is truthful evidence. No invocation_started is emitted,
+      // because no invocation reached the dispatch boundary.
       return fail(
         "required context unavailable to this executor: " +
           context.missingRequired.join(", "),
       );
     }
+
+    await this.record(
+      identity,
+      "invocation_started",
+      {
+        invocationId,
+        taskId: node.id,
+        executorPrincipalId,
+        sourceGrantId: executorGrantId,
+        effectiveResources: [...envelope.effective.resources],
+        effectiveActions: [...envelope.effective.actions],
+      },
+      executorGrantId,
+      executorPrincipalId,
+    );
 
     const result = await this.dependencies.executor.execute({
       task: node,

@@ -88,7 +88,7 @@ export function registerArtifactFieldSpecs(
 ): void {
   const existing = FIELD_SPECS[artifactType];
   if (existing !== undefined) {
-    if (JSON.stringify(existing) === JSON.stringify(specs)) return;
+    if (sameFieldSpecs(existing, specs)) return;
     throw new ArtifactSchemaConflictError(artifactType);
   }
   FIELD_SPECS[artifactType] = { ...specs };
@@ -100,6 +100,43 @@ export function artifactFieldSpecs(
 ): Record<string, FieldSpec> | undefined {
   const specs = FIELD_SPECS[artifactType];
   return specs ? { ...specs } : undefined;
+}
+
+/**
+ * Semantic equality over the bounded spec language.
+ *
+ * Deliberately not JSON.stringify: that makes key ORDER significant, so the
+ * same schema written with its fields in a different order would look like a
+ * conflict and fail a legitimate re-registration. The language is small enough
+ * to compare properly.
+ */
+function sameFieldSpec(left: FieldSpec, right: FieldSpec): boolean {
+  if (left.kind !== right.kind) return false;
+  if (left.kind === "enum" && right.kind === "enum") {
+    // Order of permitted values is not semantic.
+    const a = [...left.values].sort();
+    const b = [...right.values].sort();
+    return a.length === b.length && a.every((value, index) => value === b[index]);
+  }
+  if (left.kind === "int" && right.kind === "int") {
+    return left.min === right.min && left.max === right.max;
+  }
+  return left.kind === "window" && right.kind === "window";
+}
+
+function sameFieldSpecs(
+  left: Record<string, FieldSpec>,
+  right: Record<string, FieldSpec>,
+): boolean {
+  const leftNames = Object.keys(left).sort();
+  const rightNames = Object.keys(right).sort();
+  if (leftNames.length !== rightNames.length) return false;
+  if (!leftNames.every((name, index) => name === rightNames[index])) return false;
+  return leftNames.every((name) => {
+    const a = left[name];
+    const b = right[name];
+    return a !== undefined && b !== undefined && sameFieldSpec(a, b);
+  });
 }
 
 function isBoundedInt(value: unknown, min: number, max: number): boolean {
