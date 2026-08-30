@@ -25,6 +25,11 @@ import {
 } from "./middleware/governance/delegation.js";
 import { DelegatedAgentLauncher } from "./middleware/runtime/delegated-agent-launcher.js";
 import { startGovernedRun } from "./middleware/governance/fixtures.js";
+import {
+  createArtifact,
+  publishArtifact,
+  readArtifact,
+} from "./middleware/governance/artifacts.js";
 
 interface GovernanceDependencies extends IdentityDependencies {
   ledger: GovernanceLedger;
@@ -59,6 +64,21 @@ const governedRunBody = z
 
 /** Matches the child token lifetime in the delegated launcher. */
 const PARENT_TOKEN_TTL_SECONDS = 15 * 60;
+
+const artifactFields = z.record(z.string().min(1).max(64), z.unknown());
+const createArtifactBody = z
+  .object({
+    artifactType: z.string().trim().min(1).max(100),
+    fields: artifactFields,
+  })
+  .strict();
+const publishArtifactBody = z
+  .object({
+    artifactType: z.string().trim().min(1).max(100),
+    fields: artifactFields,
+    recipients: z.array(z.string().trim().min(1).max(200)).max(16).optional(),
+  })
+  .strict();
 const authoritySet = z
   .object({
     resources: z.array(z.string().trim().min(1).max(200)).max(100),
@@ -353,6 +373,92 @@ export async function createApp(
       });
     }
     return reply.code(201).send(result.handle);
+  });
+
+  // Return Gate. A child writes privately, then publishes through the full
+  // pipeline; only a declared recipient can read the result.
+  app.post("/api/artifacts", async (request, reply) => {
+    const identity = request.governanceIdentity;
+    if (!identity || identity.kind !== "agent") {
+      return reply.code(401).send({ error: "Runtime authentication required" });
+    }
+    if (!identityDependencies?.ledger) {
+      return reply.code(503).send({ error: "Governance unavailable" });
+    }
+    const parsed = createArtifactBody.safeParse(request.body);
+    if (!parsed.success) {
+      return reply
+        .code(400)
+        .send({ error: "malformed_input", reason: "MALFORMED_INPUT" });
+    }
+    const result = await createArtifact(identity, parsed.data, {
+      store: identityDependencies.store,
+      ledger: identityDependencies.ledger,
+    });
+    if (!result.ok) {
+      const error = result.statusCode === 403 ? "forbidden" : "request_failed";
+      return reply.code(result.statusCode).send({ error, reason: result.reason });
+    }
+    return reply.code(201).send(result.value);
+  });
+
+  app.post("/api/artifacts/:id/publish", async (request, reply) => {
+    const identity = request.governanceIdentity;
+    if (!identity || identity.kind !== "agent") {
+      return reply.code(401).send({ error: "Runtime authentication required" });
+    }
+    if (!identityDependencies?.ledger) {
+      return reply.code(503).send({ error: "Governance unavailable" });
+    }
+    const params = z
+      .object({ id: z.string().trim().min(1).max(200) })
+      .safeParse(request.params);
+    const parsed = publishArtifactBody.safeParse(request.body);
+    if (!params.success || !parsed.success) {
+      return reply
+        .code(400)
+        .send({ error: "malformed_input", reason: "MALFORMED_INPUT" });
+    }
+    const result = await publishArtifact(identity, params.data.id, parsed.data, {
+      store: identityDependencies.store,
+      ledger: identityDependencies.ledger,
+    });
+    if (!result.ok) {
+      const error = result.statusCode === 403 ? "forbidden" : "request_failed";
+      return reply.code(result.statusCode).send({
+        error,
+        reason: result.reason,
+        ...(result.detail ? { detail: result.detail } : {}),
+      });
+    }
+    return reply.send(result.value);
+  });
+
+  app.get("/api/artifacts/:id", async (request, reply) => {
+    const identity = request.governanceIdentity;
+    if (!identity || identity.kind !== "agent") {
+      return reply.code(401).send({ error: "Runtime authentication required" });
+    }
+    if (!identityDependencies?.ledger) {
+      return reply.code(503).send({ error: "Governance unavailable" });
+    }
+    const params = z
+      .object({ id: z.string().trim().min(1).max(200) })
+      .safeParse(request.params);
+    if (!params.success) {
+      return reply
+        .code(400)
+        .send({ error: "malformed_input", reason: "MALFORMED_INPUT" });
+    }
+    const result = readArtifact(identity, params.data.id, {
+      store: identityDependencies.store,
+      ledger: identityDependencies.ledger,
+    });
+    if (!result.ok) {
+      const error = result.statusCode === 403 ? "forbidden" : "request_failed";
+      return reply.code(result.statusCode).send({ error, reason: result.reason });
+    }
+    return reply.send(result.value);
   });
 
   app.get("/api/agents", async () => ({ agents: service.listAgents() }));
