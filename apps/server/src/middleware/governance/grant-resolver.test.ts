@@ -39,7 +39,11 @@ async function resolverStore(envelopes: Envelope[] = [envelope()]) {
   await store.initialize();
   await store.mutate((database) => {
     database.envelopes.push(...envelopes);
-    database.runStates.push({ runId: "run-1", tokensUsed: 4 });
+    database.runStates.push({
+      runId: "run-1",
+      maxTokens: 1_200,
+      tokensUsed: 4,
+    });
     for (const item of envelopes) {
       if (!database.grantStates.some((state) => state.grantId === item.id)) {
         database.grantStates.push({
@@ -188,7 +192,7 @@ describe("resolveGrant", () => {
           tokensUsed: 3,
           childCount: 0,
         },
-        runState: { runId: "run-1", tokensUsed: 4 },
+        runState: { runId: "run-1", maxTokens: 1_200, tokensUsed: 4 },
         now,
       },
     });

@@ -35,6 +35,9 @@ function normalizeDatabase(parsed: Database): Database {
       (normalized[name] as unknown[]) = [];
     }
   }
+  normalized.runStates = normalized.runStates.map((state) =>
+    state.maxTokens === undefined ? { ...state, maxTokens: 0 } : state,
+  );
   return normalized;
 }
 

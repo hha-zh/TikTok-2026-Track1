@@ -76,6 +76,13 @@ describe("GovernanceLedger", () => {
 
   it("updates token projections in the same append", async () => {
     const { ledger, store } = await createLedger();
+    await store.mutate((database) => {
+      database.runStates.push({
+        runId: "run-1",
+        maxTokens: 1_200,
+        tokensUsed: 0,
+      });
+    });
     await ledger.appendEvent(
       "tokens_consumed",
       {
@@ -88,7 +95,9 @@ describe("GovernanceLedger", () => {
     );
 
     const snapshot = store.snapshot();
-    expect(snapshot.runStates).toEqual([{ runId: "run-1", tokensUsed: 10 }]);
+    expect(snapshot.runStates).toEqual([
+      { runId: "run-1", maxTokens: 1_200, tokensUsed: 10 },
+    ]);
     expect(snapshot.grantStates).toEqual([
       { grantId: "grant-1", revoked: false, tokensUsed: 10, childCount: 0 },
     ]);

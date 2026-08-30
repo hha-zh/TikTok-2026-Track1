@@ -29,6 +29,8 @@ export interface Envelope {
 
 export interface RunState {
   runId: string;
+  // Independent shared run cap; Envelope.maxTokens remains the per-grant cap.
+  maxTokens: number;
   tokensUsed: number;
 }
 

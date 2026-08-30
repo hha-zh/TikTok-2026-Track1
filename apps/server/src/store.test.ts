@@ -90,6 +90,69 @@ describe("JsonStore", () => {
     expect(persisted.governanceEvents).toEqual([]);
   });
 
+  it("fails closed when a legacy RunState has no maxTokens", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "launchpad-store-test-"));
+    temporaryDirectories.push(root);
+    const filePath = path.join(root, "db.json");
+    await writeFile(
+      filePath,
+      JSON.stringify({
+        version: 1,
+        agents: [],
+        messages: [],
+        runs: [],
+        runStates: [{ runId: "legacy-run", tokensUsed: 17 }],
+      }),
+      "utf8",
+    );
+
+    const store = new JsonStore(filePath);
+    await store.initialize();
+    expect(store.snapshot().runStates).toEqual([
+      { runId: "legacy-run", maxTokens: 0, tokensUsed: 17 },
+    ]);
+
+    await store.mutate(() => undefined);
+    const persisted = JSON.parse(await readFile(filePath, "utf8")) as {
+      runStates: unknown[];
+    };
+    expect(persisted.runStates).toEqual([
+      { runId: "legacy-run", maxTokens: 0, tokensUsed: 17 },
+    ]);
+  });
+
+  it("round-trips independent grant and run token caps", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "launchpad-store-test-"));
+    temporaryDirectories.push(root);
+    const filePath = path.join(root, "db.json");
+    const store = new JsonStore(filePath);
+    await store.initialize();
+    await store.mutate((database) => {
+      database.envelopes.push({
+        id: "grant-1",
+        principalId: "agent-1",
+        exercisable: { resources: [], actions: [] },
+        delegatable: { resources: [], actions: [] },
+        depth: 0,
+        maxTokens: 800,
+        maxToolCalls: 0,
+        maxChildren: 0,
+        runId: "run-1",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      });
+      database.runStates.push({
+        runId: "run-1",
+        maxTokens: 1_200,
+        tokensUsed: 0,
+      });
+    });
+
+    const reloaded = new JsonStore(filePath);
+    await reloaded.initialize();
+    expect(reloaded.snapshot().envelopes[0]?.maxTokens).toBe(800);
+    expect(reloaded.snapshot().runStates[0]?.maxTokens).toBe(1_200);
+  });
+
   it("does not publish a mutation in memory when persistence fails", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "launchpad-store-test-"));
     temporaryDirectories.push(root);

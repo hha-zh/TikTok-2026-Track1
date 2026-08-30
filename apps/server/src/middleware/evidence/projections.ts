@@ -1,13 +1,13 @@
 import type { Database } from "../../types.js";
+import type { RunState } from "../governance/types.js";
 import type { GovernanceEvent } from "./types.js";
 
 type ProjectionCollections = Pick<Database, "runStates" | "grantStates">;
 
-function ensureRunState(database: ProjectionCollections, runId: string) {
-  let state = database.runStates.find((item) => item.runId === runId);
+function requireRunState(database: ProjectionCollections, runId: string) {
+  const state = database.runStates.find((item) => item.runId === runId);
   if (!state) {
-    state = { runId, tokensUsed: 0 };
-    database.runStates.push(state);
+    throw new Error("RunState must exist before tokens are consumed");
   }
   return state;
 }
@@ -28,7 +28,7 @@ export function applyGovernanceEvent(
   switch (event.kind) {
     case "tokens_consumed": {
       const payload = event.payload as GovernanceEvent<"tokens_consumed">["payload"];
-      ensureRunState(database, event.runId).tokensUsed += payload.totalTokens;
+      requireRunState(database, event.runId).tokensUsed += payload.totalTokens;
       ensureGrantState(database, event.grantId).tokensUsed += payload.totalTokens;
       return;
     }
@@ -51,8 +51,14 @@ export function applyGovernanceEvent(
 
 export function projectGovernanceEvents(
   events: readonly GovernanceEvent[],
+  initialRunStates: readonly RunState[],
 ): ProjectionCollections {
-  const projections: ProjectionCollections = { runStates: [], grantStates: [] };
+  // The event log has usage events but no run-cap event, so callers must supply
+  // the configured run states rather than replay inventing maxTokens values.
+  const projections: ProjectionCollections = {
+    runStates: structuredClone([...initialRunStates]),
+    grantStates: [],
+  };
   for (const event of [...events].sort((left, right) => left.seq - right.seq)) {
     applyGovernanceEvent(projections, event);
   }

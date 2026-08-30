@@ -26,12 +26,34 @@ describe("governance projections", () => {
       },
     };
 
-    expect(projectGovernanceEvents([event])).toEqual({
-      runStates: [{ runId: "run-1", tokensUsed: 10 }],
+    expect(
+      projectGovernanceEvents([event], [
+        { runId: "run-1", maxTokens: 1_200, tokensUsed: 0 },
+      ]),
+    ).toEqual({
+      runStates: [{ runId: "run-1", maxTokens: 1_200, tokensUsed: 10 }],
       grantStates: [
         { grantId: "grant-1", revoked: false, tokensUsed: 10, childCount: 0 },
       ],
     });
+  });
+
+  it("does not invent a run cap while replaying token usage", () => {
+    const event: GovernanceEvent<"tokens_consumed"> = {
+      ...context,
+      seq: 1,
+      kind: "tokens_consumed",
+      payload: {
+        inputTokens: 1,
+        cachedInputTokens: 0,
+        outputTokens: 1,
+        totalTokens: 2,
+      },
+    };
+
+    expect(() => projectGovernanceEvents([event], [])).toThrow(
+      "RunState must exist before tokens are consumed",
+    );
   });
 
   it("projects grant revocation", () => {
@@ -42,7 +64,7 @@ describe("governance projections", () => {
       payload: { reason: "MALFORMED_INPUT" },
     };
 
-    expect(projectGovernanceEvents([event]).grantStates).toEqual([
+    expect(projectGovernanceEvents([event], []).grantStates).toEqual([
       { grantId: "grant-1", revoked: true, tokensUsed: 0, childCount: 0 },
     ]);
   });
@@ -85,7 +107,7 @@ describe("governance projections", () => {
 
   it("does not change budget projections for unrelated events", () => {
     const projections = {
-      runStates: [{ runId: "run-1", tokensUsed: 8 }],
+      runStates: [{ runId: "run-1", maxTokens: 1_200, tokensUsed: 8 }],
       grantStates: [
         { grantId: "grant-1", revoked: false, tokensUsed: 8, childCount: 0 },
       ],
@@ -99,7 +121,7 @@ describe("governance projections", () => {
 
     applyGovernanceEvent(projections, event);
     expect(projections).toEqual({
-      runStates: [{ runId: "run-1", tokensUsed: 8 }],
+      runStates: [{ runId: "run-1", maxTokens: 1_200, tokensUsed: 8 }],
       grantStates: [
         { grantId: "grant-1", revoked: false, tokensUsed: 8, childCount: 0 },
       ],
