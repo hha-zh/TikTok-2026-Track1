@@ -24,6 +24,7 @@ import {
   type ChildEnvelopeRequest,
 } from "./middleware/governance/delegation.js";
 import { DelegatedAgentLauncher } from "./middleware/runtime/delegated-agent-launcher.js";
+import { startGovernedRun } from "./middleware/governance/fixtures.js";
 
 interface GovernanceDependencies extends IdentityDependencies {
   ledger: GovernanceLedger;
@@ -49,6 +50,15 @@ const updateAgentBody = createAgentBody.partial().refine(
 const messageBody = z.object({
   content: z.string().trim().min(1).max(50_000),
 });
+const governedRunBody = z
+  .object({
+    agentId: z.string().uuid(),
+    task: z.string().trim().min(1).max(20_000),
+  })
+  .strict();
+
+/** Matches the child token lifetime in the delegated launcher. */
+const PARENT_TOKEN_TTL_SECONDS = 15 * 60;
 const authoritySet = z
   .object({
     resources: z.array(z.string().trim().min(1).max(200)).max(100),
@@ -260,6 +270,58 @@ export async function createApp(
         .send({ error: result.statusCode === 404 ? "Not found" : "Forbidden" });
     }
     return reply.send({ grantId: result.grantId, revoked: result.revoked });
+  });
+
+  // Starts a governed run for an existing Agent and hands it the parent
+  // RUN_TOKEN. Without this there is no production path that mints a parent
+  // token at all: sendGovernedMessage is only reached by the delegated
+  // launcher, which mints tokens for CHILDREN. The Playground's own message
+  // route stays ungoverned, so the pre-existing contract is unchanged.
+  app.post("/api/governance/runs", async (request, reply) => {
+    const identity = request.governanceIdentity;
+    if (!identity || identity.kind !== "human") {
+      return reply.code(401).send({ error: "Human authentication required" });
+    }
+    if (!identityDependencies?.ledger) {
+      return reply.code(503).send({ error: "Governance unavailable" });
+    }
+    const parsed = governedRunBody.safeParse(request.body);
+    if (!parsed.success) {
+      return reply
+        .code(400)
+        .send({ error: "malformed_input", reason: "MALFORMED_INPUT" });
+    }
+
+    const governedRun = await startGovernedRun(
+      identityDependencies.store,
+      identityDependencies.ledger,
+      { ownerId: identity.principalId },
+    );
+    const runtimeRunToken = identityDependencies.runTokens.mint({
+      runId: governedRun.envelope.runId,
+      principalId: governedRun.principal.id,
+      grantId: governedRun.envelope.id,
+      exp: Math.floor(Date.now() / 1_000) + PARENT_TOKEN_TTL_SECONDS,
+    });
+
+    try {
+      const started = await service.sendGovernedMessage(
+        parsed.data.agentId,
+        parsed.data.task,
+        { runtimeRunToken },
+      );
+      return reply.code(201).send({
+        runId: governedRun.envelope.runId,
+        principalId: governedRun.principal.id,
+        grantId: governedRun.envelope.id,
+        agentRunId: started.run.id,
+      });
+    } catch (error) {
+      if (error instanceof HttpError) {
+        return reply.code(error.statusCode).send({ error: error.message });
+      }
+      throw error;
+    }
   });
 
   app.post("/api/delegations", async (request, reply) => {
