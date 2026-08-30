@@ -1,4 +1,6 @@
 import { execFile, spawn, type ChildProcess } from "node:child_process";
+import { chmod, copyFile, mkdir } from "node:fs/promises";
+import path from "node:path";
 import { promisify } from "node:util";
 import type { AppConfig } from "./config.js";
 import { buildCodexArgs, parseCodexEventLine } from "./codex-runner.js";
@@ -35,11 +37,43 @@ export function containerName(agentId: string, instanceId = "default"): string {
   return "launchpad-" + safeInstance + "-" + safeAgent;
 }
 
+export function agentCodexHome(codexHome: string, agentId: string): string {
+  if (
+    !agentId ||
+    agentId === "." ||
+    agentId === ".." ||
+    !/^[a-zA-Z0-9_.-]+$/.test(agentId)
+  ) {
+    throw new Error("Agent ID is not safe for a Runtime home path");
+  }
+  const root = path.resolve(codexHome);
+  const candidate = path.resolve(root, agentId);
+  if (path.dirname(candidate) !== root) {
+    throw new Error("Agent Runtime home must remain beneath CODEX_HOME");
+  }
+  return candidate;
+}
+
+export async function initializeAgentCodexHome(
+  config: AppConfig,
+  agentId: string,
+): Promise<string> {
+  const home = agentCodexHome(config.codexHome, agentId);
+  await mkdir(home, { recursive: true, mode: 0o700 });
+  await chmod(home, 0o700);
+  await copyFile(
+    path.join(config.codexHome, "config.toml"),
+    path.join(home, "config.toml"),
+  );
+  return home;
+}
+
 export function buildContainerRunArgs(
   request: RunnerRequest,
   config: AppConfig,
 ): string[] {
   const name = containerName(request.agentId, config.runtimeInstanceId);
+  const codexHome = agentCodexHome(config.codexHome, request.agentId);
   const engineName = config.containerEngine.split(/[\\/]/).at(-1)?.toLowerCase();
   return [
     "run",
@@ -76,10 +110,11 @@ export function buildContainerRunArgs(
     "HOME=/tmp",
     "--env",
     "NO_COLOR=1",
+    ...(request.runtimeRunToken ? ["--env", "RUN_TOKEN"] : []),
     "--mount",
     "type=bind,src=" + request.workspacePath + ",dst=/workspace",
     "--mount",
-    "type=bind,src=" + config.codexHome + ",dst=/codex-home",
+    "type=bind,src=" + codexHome + ",dst=/codex-home",
     "--workdir",
     "/workspace",
     config.containerRuntimeImage,
@@ -142,12 +177,14 @@ export class ContainerCodexRunner implements AgentRunner {
       throw new Error("Agent already has an active Runtime container");
     }
 
+    await initializeAgentCodexHome(this.config, request.agentId);
+
     const child = spawn(
       this.config.containerEngine,
       buildContainerRunArgs(request, this.config),
       {
         cwd: request.workspacePath,
-        env: this.childEnvironment(),
+        env: this.childEnvironment(request.runtimeRunToken),
         stdio: ["ignore", "pipe", "pipe"],
       },
     );
@@ -235,10 +272,11 @@ export class ContainerCodexRunner implements AgentRunner {
     }
   }
 
-  private childEnvironment(): NodeJS.ProcessEnv {
+  private childEnvironment(runtimeRunToken?: string): NodeJS.ProcessEnv {
     const environment: NodeJS.ProcessEnv = {
       ARK_API_KEY: this.config.arkApiKey,
       NO_COLOR: "1",
+      ...(runtimeRunToken ? { RUN_TOKEN: runtimeRunToken } : {}),
     };
     for (const name of [
       "PATH",

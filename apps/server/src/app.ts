@@ -7,6 +7,18 @@ import { z } from "zod";
 import type { AppConfig } from "./config.js";
 import { HttpError } from "./errors.js";
 import type { AgentService } from "./agent-service.js";
+import type {
+  AuthenticatedIdentity,
+  IdentityDependencies,
+} from "./middleware/governance/identity.js";
+import { verifyIdentity } from "./middleware/governance/identity.js";
+import { RunTokenService } from "./middleware/governance/run-token.js";
+
+declare module "fastify" {
+  interface FastifyRequest {
+    governanceIdentity: AuthenticatedIdentity | null;
+  }
+}
 
 const agentIdParams = z.object({ id: z.string().uuid() });
 const runIdParams = z.object({ id: z.string().uuid() });
@@ -26,6 +38,7 @@ const messageBody = z.object({
 export async function createApp(
   config: AppConfig,
   service: AgentService,
+  identityDependencies?: IdentityDependencies,
 ): Promise<FastifyInstance> {
   const app = Fastify({
     logger: {
@@ -42,7 +55,45 @@ export async function createApp(
         : false,
   });
 
+  app.decorateRequest("governanceIdentity", null);
+
   app.addHook("onRequest", async (request, reply) => {
+    const authorizationHeader = request.headers.authorization;
+    const bearer = authorizationHeader?.startsWith("Bearer ")
+      ? authorizationHeader.slice(7)
+      : undefined;
+    const principalHeader = request.headers["x-principal-id"];
+    const principalId =
+      typeof principalHeader === "string" ? principalHeader : undefined;
+    const runtimeCredential = bearer && RunTokenService.hasTokenMarker(bearer);
+
+    if (runtimeCredential) {
+      if (!identityDependencies) {
+        return reply.code(401).send({ error: "Runtime authentication failed" });
+      }
+      const result = verifyIdentity(
+        {
+          authorizationHeader: authorizationHeader ?? "",
+          ...(principalId ? { principalHeader: principalId } : {}),
+        },
+        identityDependencies,
+      );
+      if (!result.ok || result.identity.kind !== "agent") {
+        return reply.code(401).send({ error: "Runtime authentication failed" });
+      }
+      request.governanceIdentity = result.identity;
+      if (request.url.split("?", 1)[0] === "/api/runtime/identity") return;
+    } else if (principalId && identityDependencies) {
+      const result = verifyIdentity(
+        { principalHeader: principalId },
+        identityDependencies,
+      );
+      if (!result.ok || result.identity.kind !== "human") {
+        return reply.code(401).send({ error: "Principal authentication failed" });
+      }
+      request.governanceIdentity = result.identity;
+    }
+
     if (
       !config.authToken ||
       !request.url.startsWith("/api/") ||
@@ -71,6 +122,19 @@ export async function createApp(
   app.get("/api/auth", async () => ({ required: config.authToken.length > 0 }));
 
   app.get("/api/system", async () => service.systemInfo());
+
+  app.get("/api/runtime/identity", async (request, reply) => {
+    const identity = request.governanceIdentity;
+    if (!identity || identity.kind !== "agent") {
+      return reply.code(401).send({ error: "Runtime authentication required" });
+    }
+    return {
+      principalId: identity.principalId,
+      grantId: identity.grantId,
+      runId: identity.runId,
+      kind: identity.kind,
+    };
+  });
 
   app.get("/api/agents", async () => ({ agents: service.listAgents() }));
 

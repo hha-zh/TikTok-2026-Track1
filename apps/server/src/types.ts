@@ -92,6 +92,7 @@ export interface RunnerRequest {
   workspacePath: string;
   prompt: string;
   threadId: string | null;
+  runtimeRunToken?: string;
 }
 
 export interface AgentRunner {
