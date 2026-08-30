@@ -54,6 +54,7 @@ export interface GovernanceState {
 }
 
 export type ReasonCode =
+  | "AUTHORIZED"
   | "INVALID_TOKEN"
   | "PRINCIPAL_NOT_FOUND"
   | "GRANT_NOT_FOUND"
