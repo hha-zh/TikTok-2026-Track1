@@ -26,6 +26,7 @@
 
 import type { JsonStore } from "../../store.js";
 import type { GovernanceLedger } from "../evidence/ledger.js";
+import type { GovernanceEventPayloadMap } from "../evidence/types.js";
 import { ancestorPrincipalIds } from "../governance/artifacts.js";
 import { resolveGrant } from "../governance/grant-resolver.js";
 import type { GovernanceState, Principal, ReasonCode } from "../governance/types.js";
@@ -185,6 +186,19 @@ export interface EngineDependencies {
   now?: (() => string) | undefined;
 }
 
+/** The runtime-evidence subset of the ledger's kinds. */
+type AdaptiveEventKind =
+  | "task_ready"
+  | "task_deferred"
+  | "routing_decision"
+  | "invocation_started"
+  | "context_projected"
+  | "task_completed"
+  | "task_failed"
+  | "task_skipped"
+  | "runtime_degraded"
+  | "run_outcome";
+
 export interface EngineIdentity {
   principal: Principal;
   grantId: string;
@@ -208,6 +222,28 @@ export class ExecutionEngine {
 
   private now(): string {
     return this.dependencies.now?.() ?? new Date().toISOString();
+  }
+
+  /**
+   * Append one Adaptive Runtime evidence event.
+   *
+   * These are runtime FACTS, not verdicts. They go through the same
+   * single-writer, redacted ledger as governance evidence so the Run Inspector
+   * has one append-only trail rather than a second store that disappears with
+   * the request.
+   */
+  private record<K extends AdaptiveEventKind>(
+    identity: EngineIdentity,
+    kind: K,
+    payload: GovernanceEventPayloadMap[K],
+    grantId?: string,
+    principalId?: string,
+  ): Promise<unknown> {
+    return this.dependencies.ledger.appendEvent(kind, payload, {
+      runId: identity.runId,
+      grantId: grantId ?? identity.grantId,
+      principalId: principalId ?? identity.principal.id,
+    });
   }
 
   /** Fresh state, every time. Never cached across a dispatch boundary. */
@@ -243,17 +279,20 @@ export class ExecutionEngine {
       skipped,
       artifacts: artifactNames,
     });
-    const finish = (outcome: RunOutcome): EngineResult => ({
-      outcome,
-      progress: progress(),
-      artifacts,
-      rounds,
-      failures,
-    });
+    const finish = async (outcome: RunOutcome): Promise<EngineResult> => {
+      await this.record(identity, "run_outcome", {
+        outcome,
+        completed: completed.size,
+        skipped: skipped.size,
+        failed: failures.length,
+        rounds: rounds.length,
+      });
+      return { outcome, progress: progress(), artifacts, rounds, failures };
+    };
 
     for (let index = 0; index < this.policy.maxRounds; index += 1) {
       const settledBefore = completed.size + skipped.size;
-      if (settledBefore === graph.nodes.length) return finish("COMPLETED");
+      if (settledBefore === graph.nodes.length) return await finish("COMPLETED");
 
       // A task whose producer was skipped can never become ready. Report it as
       // blocked rather than letting the run look stalled.
@@ -272,7 +311,7 @@ export class ExecutionEngine {
               entry.missingArtifacts.join(", "),
           });
         }
-        return finish("UNREACHABLE");
+        return await finish("UNREACHABLE");
       }
 
       const ready = readyNodes(graph, progress());
@@ -290,7 +329,7 @@ export class ExecutionEngine {
       );
       if (!resolution.ok) {
         failures.push({ taskId: graph.id, reason: "grant unresolvable: " + resolution.reason });
-        return finish("BLOCKED");
+        return await finish("BLOCKED");
       }
       const state = resolution.state;
 
@@ -317,10 +356,40 @@ export class ExecutionEngine {
       const record: RoundRecord = { index, plan, executed: [] };
       rounds.push(record);
 
+      for (const node of ready) {
+        await this.record(identity, "task_ready", { taskId: node.id });
+      }
+      for (const assignment of plan.assignments) {
+        const node = graph.nodes.find((item) => item.id === assignment.nodeId);
+        await this.record(identity, "routing_decision", {
+          taskId: assignment.nodeId,
+          disposition: assignment.disposition,
+          placement: assignment.placement,
+          declaredUtilityGain: node?.hints?.expectedUtilityGain ?? null,
+          declaredIncrementalCost: node?.hints?.expectedIncrementalCost ?? null,
+          delegationValue: assignment.delegationValue,
+          delegationThreshold: assignment.delegationThreshold,
+          shape: plan.shape,
+          wave: assignment.wave,
+        });
+        if (assignment.disposition === "DEGRADE") {
+          await this.record(identity, "runtime_degraded", {
+            taskId: assignment.nodeId,
+            from: "PARALLEL",
+            to: plan.shape,
+            note: assignment.note,
+          });
+        }
+      }
+
       // --- dispositions that settle without executing ---
       for (const assignment of plan.assignments) {
         if (assignment.disposition === "SKIP") {
           skipped.add(assignment.nodeId);
+          await this.record(identity, "task_skipped", {
+            taskId: assignment.nodeId,
+            reason: assignment.note,
+          });
         }
         if (assignment.disposition === "BLOCKED") {
           failures.push({
@@ -328,10 +397,19 @@ export class ExecutionEngine {
             reason: assignment.note,
             governanceReason: assignment.governanceReason,
           });
+          await this.record(identity, "task_failed", {
+            taskId: assignment.nodeId,
+            reason: assignment.note,
+          });
         }
         if (assignment.disposition === "DEFER") {
           const count = (deferCounts.get(assignment.nodeId) ?? 0) + 1;
           deferCounts.set(assignment.nodeId, count);
+          await this.record(identity, "task_deferred", {
+            taskId: assignment.nodeId,
+            deferCount: count,
+            note: assignment.note,
+          });
           if (count > this.policy.maxDeferPerTask) {
             const node = graph.nodes.find((item) => item.id === assignment.nodeId);
             if (node?.optional) {
@@ -343,12 +421,12 @@ export class ExecutionEngine {
                   `deferred ${count} times, ceiling ${this.policy.maxDeferPerTask}: ` +
                   assignment.note,
               });
-              return finish("DEFER_CEILING");
+              return await finish("DEFER_CEILING");
             }
           }
         }
       }
-      if (plan.blocked) return finish("BLOCKED");
+      if (plan.blocked) return await finish("BLOCKED");
 
       // --- execute the waves in order ---
       const byId = new Map(plan.assignments.map((item) => [item.nodeId, item]));
@@ -382,18 +460,27 @@ export class ExecutionEngine {
           if (outcome.completed) {
             executedAnything = true;
             completed.add(outcome.taskId);
+            await this.record(identity, "task_completed", {
+              taskId: outcome.taskId,
+              invocationId: outcome.invocationId,
+              placement: outcome.placement,
+            });
             for (const artifact of outcome.committed) {
               artifacts.push(artifact);
               artifactNames.add(artifact.id);
             }
           } else {
+            await this.record(identity, "task_failed", {
+              taskId: outcome.taskId,
+              reason: outcome.note,
+            });
             const node = graph.nodes.find((item) => item.id === outcome.taskId);
             if (node?.optional) {
               skipped.add(outcome.taskId);
               executedAnything = true;
             } else {
               failures.push({ taskId: outcome.taskId, reason: outcome.note });
-              return finish("EXECUTION_FAILED");
+              return await finish("EXECUTION_FAILED");
             }
           }
         }
@@ -406,11 +493,11 @@ export class ExecutionEngine {
       const madeProgress = executedAnything || settledAfter > settledBefore;
       if (!madeProgress && plan.waves.length === 0) {
         const anyDeferred = plan.assignments.some((item) => item.disposition === "DEFER");
-        if (!anyDeferred) return finish("BLOCKED");
+        if (!anyDeferred) return await finish("BLOCKED");
       }
     }
 
-    return finish("ROUND_LIMIT");
+    return await finish("ROUND_LIMIT");
   }
 
   private commitArtifacts(
@@ -485,6 +572,7 @@ export class ExecutionEngine {
   ): Promise<{
     taskId: string;
     placement: string;
+    invocationId: string;
     completed: boolean;
     committed: ContextArtifact[];
     usage: TaskUsage;
@@ -497,9 +585,12 @@ export class ExecutionEngine {
       totalTokens: 0,
     };
     const placement = assignment.placement ?? "REUSE_CURRENT";
+    // Stamped up front so a failure before dispatch is still traceable.
+    const invocationId = `${identity.runId}:${node.id}:${(this.invocations += 1)}`;
     const fail = (note: string) => ({
       taskId: node.id,
       placement,
+      invocationId,
       completed: false,
       committed: [],
       usage: empty,
@@ -544,7 +635,7 @@ export class ExecutionEngine {
     const envelope = deriveExecutionEnvelope({
       state,
       task: node,
-      invocationId: `${identity.runId}:${node.id}:${this.invocations += 1}`,
+      invocationId,
       ...(this.dependencies.executionPolicy
         ? { policy: this.dependencies.executionPolicy }
         : {}),
@@ -553,11 +644,41 @@ export class ExecutionEngine {
     // Real ancestry from the grant chain, so a delegated child can be briefed
     // with what its parent produced while nothing flows back up without the
     // Return Gate.
+    await this.record(
+      identity,
+      "invocation_started",
+      {
+        invocationId,
+        taskId: node.id,
+        executorPrincipalId,
+        sourceGrantId: executorGrantId,
+        effectiveResources: [...envelope.effective.resources],
+        effectiveActions: [...envelope.effective.actions],
+      },
+      executorGrantId,
+      executorPrincipalId,
+    );
+
     const context = projectContext(
       node,
       envelope,
       artifacts,
       ancestorPrincipalIds(this.dependencies.store, executorGrantId),
+    );
+    await this.record(
+      identity,
+      "context_projected",
+      {
+        invocationId,
+        taskId: node.id,
+        includedArtifactIds: context.included.map((item) => item.id),
+        withheldArtifactIds: context.withheld.map((item) => ({
+          id: item.id,
+          reason: item.reason,
+        })),
+      },
+      executorGrantId,
+      executorPrincipalId,
     );
     if (context.missingRequired.length > 0) {
       return fail(
@@ -609,6 +730,7 @@ export class ExecutionEngine {
     return {
       taskId: node.id,
       placement,
+      invocationId,
       completed: true,
       committed,
       usage: result.usage,

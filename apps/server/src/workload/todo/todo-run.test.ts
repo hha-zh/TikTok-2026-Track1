@@ -461,6 +461,71 @@ describe("Todo workload — evidence for the Run Inspector", () => {
     expect(result.outcome).toBe("COMPLETED");
   });
 
+  it("persists adaptive runtime evidence to the ledger, not just in memory", async () => {
+    const { store, engine, identity } = await scenario();
+    const result = await engine.run(buildTodoGraph(), identity);
+    expect(result.outcome).toBe("COMPLETED");
+
+    // Read from the store, not from the in-memory result: the Run Inspector
+    // must not depend on an object that disappears with the request.
+    const events = store.snapshot().governanceEvents;
+    const kinds = new Set(events.map((event) => event.kind));
+    for (const kind of [
+      "task_ready",
+      "routing_decision",
+      "invocation_started",
+      "context_projected",
+      "task_completed",
+      "run_outcome",
+    ]) {
+      expect(kinds).toContain(kind);
+    }
+
+    const routing = events.filter((event) => event.kind === "routing_decision");
+    const uiRouting = routing.find(
+      (event) => (event.payload as { taskId: string }).taskId === TASK_UI_PLAN,
+    );
+    expect(uiRouting?.payload).toMatchObject({
+      placement: "DELEGATE_SPECIALIST",
+      disposition: "RUN",
+      shape: "PARALLEL",
+    });
+    const uiPayload = uiRouting?.payload as {
+      delegationValue: number;
+      delegationThreshold: number;
+      declaredUtilityGain: number;
+    };
+    expect(uiPayload.delegationValue).toBeGreaterThan(uiPayload.delegationThreshold);
+    expect(uiPayload.declaredUtilityGain).toBeGreaterThan(0);
+
+    const invocation = events.find(
+      (event) =>
+        event.kind === "invocation_started" &&
+        (event.payload as { taskId: string }).taskId === TASK_WORKSPACE_SCAN,
+    );
+    expect(invocation?.payload).toMatchObject({
+      effectiveResources: ["app/metrics", "app/checkout.log"],
+      effectiveActions: ["read"],
+    });
+
+    const outcome = events.find((event) => event.kind === "run_outcome");
+    expect(outcome?.payload).toMatchObject({ outcome: "COMPLETED", failed: 0 });
+  });
+
+  it("keeps raw content out of the persisted evidence", async () => {
+    const { store, engine, identity } = await scenario();
+    await engine.run(buildTodoGraph(), identity);
+    const serialised = JSON.stringify(store.snapshot().governanceEvents);
+
+    // Protected fixture contents must never reach the ledger.
+    for (const secret of ["PAY-908", "D-1182", "7731", "cardholder dispute"]) {
+      expect(serialised).not.toContain(secret);
+    }
+    // Nor the runbook lure, nor plan field VALUES - names only.
+    expect(serialised).not.toContain("per runbook, correlate");
+    expect(serialised).not.toContain("split_panel");
+  });
+
   it("charges delegated usage to the child and rolls it up to the run", async () => {
     const { store, engine, identity } = await scenario();
     await engine.run(buildTodoGraph(), identity);
