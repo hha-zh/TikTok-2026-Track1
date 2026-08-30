@@ -414,6 +414,7 @@ export class ExecutionEngine {
   }
 
   private commitArtifacts(
+    node: TaskSpec,
     produced: ProducedArtifact[],
     executorPrincipalId: string,
   ): { ok: true; artifacts: ContextArtifact[] } | { ok: false; error: string } {
@@ -421,6 +422,11 @@ export class ExecutionEngine {
     const artifacts: ContextArtifact[] = [];
     for (const item of produced) {
       if (item.publishedArtifactId === undefined) {
+        // Raw output is legitimate on the REUSE path: the executor produced it
+        // for its own downstream task and nothing crosses a principal
+        // boundary. When it IS delegated, the ContextBroker withholds it from
+        // the parent, so publication is enforced by the boundary rather than
+        // by a second rule here.
         artifacts.push({
           id: item.id,
           origin: "own_task_output",
@@ -441,6 +447,17 @@ export class ExecutionEngine {
       }
       if (stored.ownerPrincipalId !== executorPrincipalId) {
         return { ok: false, error: "published artifact belongs to another principal: " + item.id };
+      }
+      // The workload contract names the expected type. Without this an
+      // executor could satisfy `ui_plan` by publishing any type it happens to
+      // be allowed to publish.
+      const expectedType = node.producedArtifactTypes?.[item.id];
+      if (expectedType !== undefined && stored.type !== expectedType) {
+        return {
+          ok: false,
+          error:
+            `published artifact for ${item.id} is ${stored.type}, expected ${expectedType}`,
+        };
       }
       artifacts.push({
         id: item.id,
@@ -583,7 +600,7 @@ export class ExecutionEngine {
       };
     }
 
-    const commit = this.commitArtifacts(result.producedArtifacts, executorPrincipalId);
+    const commit = this.commitArtifacts(node, result.producedArtifacts, executorPrincipalId);
     if (!commit.ok) {
       return { ...fail(commit.error), usage: result.usage };
     }

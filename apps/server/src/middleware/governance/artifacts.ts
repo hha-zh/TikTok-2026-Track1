@@ -60,6 +60,15 @@ const FIELD_SPECS: Record<string, Record<string, FieldSpec>> = {
   },
 };
 
+export class ArtifactSchemaConflictError extends Error {
+  constructor(artifactType: string) {
+    super(
+      "artifact type already registered with different field specs: " + artifactType,
+    );
+    this.name = "ArtifactSchemaConflictError";
+  }
+}
+
 /**
  * Register the field shapes for an artifact type.
  *
@@ -68,13 +77,29 @@ const FIELD_SPECS: Record<string, Record<string, FieldSpec>> = {
  * free-text kind, so a registration cannot open a prose channel however it is
  * written - that property belongs to the language, not to who calls this.
  *
- * Idempotent, so seeding twice is safe.
+ * Fails closed on conflict. Re-registering the SAME shape is a no-op so
+ * bootstrapping twice is safe, but redefining a type that is already in use
+ * would silently change what every existing artifact of that type is allowed
+ * to contain - so that throws during trusted bootstrap instead.
  */
 export function registerArtifactFieldSpecs(
   artifactType: string,
   specs: Record<string, FieldSpec>,
 ): void {
+  const existing = FIELD_SPECS[artifactType];
+  if (existing !== undefined) {
+    if (JSON.stringify(existing) === JSON.stringify(specs)) return;
+    throw new ArtifactSchemaConflictError(artifactType);
+  }
   FIELD_SPECS[artifactType] = { ...specs };
+}
+
+/** Registered field shapes for a type, for verification and tests. */
+export function artifactFieldSpecs(
+  artifactType: string,
+): Record<string, FieldSpec> | undefined {
+  const specs = FIELD_SPECS[artifactType];
+  return specs ? { ...specs } : undefined;
 }
 
 function isBoundedInt(value: unknown, min: number, max: number): boolean {

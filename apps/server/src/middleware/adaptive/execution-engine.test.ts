@@ -370,6 +370,71 @@ describe("ExecutionEngine — budget and termination", () => {
   });
 });
 
+describe("ExecutionEngine — produced artifact type contract", () => {
+  /** Publishes a real artifact of `publishedType` under a contracted name. */
+  async function runWithPublishedType(publishedType: string, expectedType: string) {
+    const { store, ledger, identity } = await harness();
+    const node = task({
+      id: "planner",
+      resources: [],
+      actions: ["model:invoke"],
+      producedArtifacts: ["plan"],
+      producedArtifactTypes: { plan: expectedType },
+      estimatedTokens: 100,
+    });
+
+    const executor: TaskExecutor = {
+      async execute(request) {
+        // A genuine artifact, owned by this executor, published for real.
+        const artifactId = randomUUID();
+        await store.mutate((database) => {
+          database.artifacts.push({
+            id: artifactId,
+            ownerPrincipalId: request.envelope.executorPrincipalId,
+            type: publishedType,
+            fields: { verdict: "expected" },
+            published: true,
+            recipients: [],
+          });
+        });
+        return {
+          ok: true,
+          producedArtifacts: [
+            { id: "plan", value: {}, publishedArtifactId: artifactId },
+          ],
+          usage: usage(50),
+        };
+      },
+    };
+    const engine = new ExecutionEngine({
+      store,
+      ledger,
+      executor,
+      delegation: realDelegation(store, ledger),
+    });
+    return engine.run(graphOf(node), identity);
+  }
+
+  it("accepts a published artifact matching the contracted type", async () => {
+    const result = await runWithPublishedType("UIPlan", "UIPlan");
+    expect(result.outcome).toBe("COMPLETED");
+    expect(result.progress.artifacts.has("plan")).toBe(true);
+  });
+
+  it("rejects a published SecurityFinding claimed as the UIPlan output", async () => {
+    const result = await runWithPublishedType("SecurityFinding", "UIPlan");
+    expect(result.outcome).toBe("EXECUTION_FAILED");
+    expect(result.failures[0]?.reason).toContain("is SecurityFinding, expected UIPlan");
+    expect(result.progress.artifacts.has("plan")).toBe(false);
+  });
+
+  it("rejects a published TestPlan claimed as the UIPlan output", async () => {
+    const result = await runWithPublishedType("TestPlan", "UIPlan");
+    expect(result.outcome).toBe("EXECUTION_FAILED");
+    expect(result.failures[0]?.reason).toContain("is TestPlan, expected UIPlan");
+  });
+});
+
 describe("ExecutionEngine — governance is never rescued", () => {
   it("blocks a task governance denied, however much budget is spare", async () => {
     const { store, ledger, identity } = await harness();

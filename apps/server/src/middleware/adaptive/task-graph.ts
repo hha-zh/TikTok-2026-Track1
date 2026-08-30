@@ -43,6 +43,17 @@ export interface TaskSpec {
   requiredArtifacts: string[];
   /** Artifacts this task produces when it completes. */
   producedArtifacts: string[];
+  /**
+   * Expected Return-Gate type per produced artifact name, e.g.
+   * `{ ui_plan: "UIPlan" }`.
+   *
+   * The trusted workload contract states this; the executor does not get to
+   * redefine it. When a name appears here the engine requires the stored
+   * artifact to be published AND of exactly this type, so an executor cannot
+   * satisfy `ui_plan` by publishing something else it happens to be allowed to
+   * publish.
+   */
+  producedArtifactTypes?: Record<string, string> | undefined;
   /** Planning estimate only. Never reservation, never accounting. */
   estimatedTokens: number;
   /**

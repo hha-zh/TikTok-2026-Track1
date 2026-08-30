@@ -14,7 +14,6 @@ import {
   RESOURCE_PAYMENTS,
   seedGovernanceFixtures,
   startGovernedRun,
-  WORKLOAD_ARTIFACT_TYPES,
 } from "../../middleware/governance/fixtures.js";
 import { resolveGrant } from "../../middleware/governance/grant-resolver.js";
 import {
@@ -23,6 +22,10 @@ import {
   TEST_PLAN_SCHEMA,
   UI_PLAN_SCHEMA,
 } from "./artifacts.js";
+import {
+  ArtifactSchemaConflictError,
+  registerArtifactFieldSpecs,
+} from "../../middleware/governance/artifacts.js";
 import { createTodoDelegationPort, TodoWorkspaceExecutor } from "./adapter.js";
 import {
   ARTIFACT_TEST_PLAN_RESULT,
@@ -35,7 +38,7 @@ import {
   TASK_UI_PLAN,
   TASK_WORKSPACE_SCAN,
 } from "./graph.js";
-import { seedTodoWorkload } from "./seed.js";
+import { seedTodoWorkload, TODO_DELEGATABLE_RESOURCES } from "./seed.js";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -63,7 +66,11 @@ async function scenario(burn = 0) {
   await seedGovernanceFixtures(store);
   await seedTodoWorkload(store);
   const ledger = new GovernanceLedger(store);
-  const governed = await startGovernedRun(store, ledger, { runId: "run-1" });
+  const governed = await startGovernedRun(store, ledger, {
+    runId: "run-1",
+    // Contributed by the workload bootstrap, not baked into governance.
+    additionalDelegatableResources: TODO_DELEGATABLE_RESOURCES,
+  });
 
   if (burn > 0) {
     await ledger.appendEvent("tokens_consumed", usage(burn), {
@@ -102,16 +109,117 @@ describe("Todo workload — schemas", () => {
     }
   });
 
-  it("grants the plan types as delegatable only, leaving the boundaries intact", () => {
-    expect(WORKLOAD_ARTIFACT_TYPES).toEqual([ARTIFACT_UI_PLAN, ARTIFACT_TEST_PLAN]);
-    for (const type of WORKLOAD_ARTIFACT_TYPES) {
-      expect(PARENT_DELEGATABLE_RESOURCES).toContain(type);
+  it("keeps workload artifact names out of the governance fixture", async () => {
+    // Governance must not be semantically aware of the workload.
+    expect(TODO_DELEGATABLE_RESOURCES).toEqual([ARTIFACT_UI_PLAN, ARTIFACT_TEST_PLAN]);
+    for (const type of TODO_DELEGATABLE_RESOURCES) {
+      expect(PARENT_DELEGATABLE_RESOURCES).not.toContain(type);
       expect(PARENT_EXERCISABLE_RESOURCES).not.toContain(type);
+    }
+
+    // They arrive only through the trusted workload bootstrap, delegatable-only.
+    const { governed } = await scenario();
+    for (const type of TODO_DELEGATABLE_RESOURCES) {
+      expect(governed.envelope.delegatable.resources).toContain(type);
+      expect(governed.envelope.exercisable.resources).not.toContain(type);
     }
     // The three demo boundaries are untouched.
     expect(PARENT_EXERCISABLE_RESOURCES).not.toContain(RESOURCE_PAYMENTS);
     expect(PARENT_DELEGATABLE_RESOURCES).not.toContain(RESOURCE_PAYMENTS);
     expect(PARENT_EXERCISABLE_RESOURCES).not.toContain("sec/INC-42");
+  });
+});
+
+describe("Todo workload — output type contract", () => {
+  /** Publishes a real artifact of the WRONG type for ui_plan. */
+  async function publishWrongType(artifactType: string) {
+    const { store, ledger, identity } = await scenario();
+    const honest = new TodoWorkspaceExecutor(store, ledger);
+    const original = honest.execute.bind(honest);
+    honest.execute = async (request) => {
+      if (request.task.id !== TASK_UI_PLAN) return original(request);
+      const substitute = await original({
+        ...request,
+        task: { ...request.task, id: TASK_TEST_PLAN },
+      });
+      // Same real publication, relabelled as the ui_plan output.
+      return {
+        ...substitute,
+        producedArtifacts: substitute.producedArtifacts.map((item) => ({
+          ...item,
+          id: ARTIFACT_UI_PLAN_RESULT,
+        })),
+      };
+    };
+    const engine = new ExecutionEngine({
+      store,
+      ledger,
+      executor: honest,
+      delegation: createTodoDelegationPort(store, ledger),
+    });
+    const result = await engine.run(buildTodoGraph(), identity);
+    return { result, artifactType };
+  }
+
+  it("cannot even create a foreign artifact type: authority blocks it first", async () => {
+    // Defence in depth. The ui_plan child's envelope is scoped to UIPlan, so
+    // authorize() refuses the create before the engine's type contract is
+    // reached. The contract is the second line, not the only one.
+    const { result } = await publishWrongType(ARTIFACT_TEST_PLAN);
+    expect(result.outcome).toBe("EXECUTION_FAILED");
+    const failure = result.failures.find((item) => item.taskId === TASK_UI_PLAN);
+    expect(failure?.reason).toContain("artifact:create denied");
+    expect(result.progress.artifacts.has(ARTIFACT_UI_PLAN_RESULT)).toBe(false);
+  });
+
+  it("rejects a published artifact id that does not exist", async () => {
+    const { store, ledger, identity } = await scenario();
+    const liar = new TodoWorkspaceExecutor(store, ledger);
+    const original = liar.execute.bind(liar);
+    liar.execute = async (request) => {
+      const outcome = await original(request);
+      if (request.task.id !== TASK_UI_PLAN || !outcome.ok) return outcome;
+      // Claims the Return Gate ran when it did not.
+      return {
+        ...outcome,
+        producedArtifacts: outcome.producedArtifacts.map((item) => ({
+          ...item,
+          publishedArtifactId: "no-such-artifact",
+        })),
+      };
+    };
+    const engine = new ExecutionEngine({
+      store,
+      ledger,
+      executor: liar,
+      delegation: createTodoDelegationPort(store, ledger),
+    });
+    const result = await engine.run(buildTodoGraph(), identity);
+    expect(result.outcome).toBe("EXECUTION_FAILED");
+    expect(
+      result.failures.find((item) => item.taskId === TASK_UI_PLAN)?.reason,
+    ).toContain("published artifact not found");
+  });
+});
+
+describe("Todo workload — artifact schema registration", () => {
+  it("is a no-op on an identical re-registration", () => {
+    const specs = { verdict: { kind: "enum", values: ["a", "b"] } } as const;
+    registerArtifactFieldSpecs("ConflictProbe", { ...specs });
+    expect(() => registerArtifactFieldSpecs("ConflictProbe", { ...specs })).not.toThrow();
+  });
+
+  it("fails closed when the same type is redefined differently", () => {
+    registerArtifactFieldSpecs("ConflictProbeTwo", {
+      verdict: { kind: "enum", values: ["a", "b"] },
+    });
+    // Silently overwriting would change what every existing artifact of that
+    // type is allowed to contain.
+    expect(() =>
+      registerArtifactFieldSpecs("ConflictProbeTwo", {
+        verdict: { kind: "enum", values: ["a", "b", "c"] },
+      }),
+    ).toThrow(ArtifactSchemaConflictError);
   });
 });
 

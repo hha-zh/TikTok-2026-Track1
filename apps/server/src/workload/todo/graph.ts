@@ -88,6 +88,9 @@ export function buildTodoGraph(options: TodoGraphOptions = {}): TaskGraph {
       dependsOn: [TASK_WORKSPACE_SCAN],
       requiredArtifacts: [ARTIFACT_WORKSPACE_SUMMARY],
       producedArtifacts: [producedArtifact],
+      // Trusted workload contract: when this crosses the Return Gate it must be
+      // exactly this type. The executor does not get to choose.
+      producedArtifactTypes: { [producedArtifact]: artifactType },
       estimatedTokens: 400,
       delegatedAuthority: plannerDelegatedAuthority(artifactType),
       hints: {

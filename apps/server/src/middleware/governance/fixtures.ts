@@ -214,23 +214,9 @@ export const PARENT_EXERCISABLE_RESOURCES = [
  * to read the audit slice while being unable to read it itself. The artifact
  * type rides in the same set so a derived child can publish its finding.
  */
-/**
- * Workload artifact types a delegated child may publish back.
- *
- * These are the MINIMUM authority a planning child needs to return a bounded
- * result through the Return Gate. They are added to `delegatable` only: the
- * parent can cause a plan to be produced and published to it, and still cannot
- * publish one itself.
- *
- * Named here as literals rather than imported so governance keeps no dependency
- * on any workload; the workload asserts they match.
- */
-export const WORKLOAD_ARTIFACT_TYPES = ["UIPlan", "TestPlan"];
-
 export const PARENT_DELEGATABLE_RESOURCES = [
   RESOURCE_AUDIT,
   ARTIFACT_SECURITY_FINDING,
-  ...WORKLOAD_ARTIFACT_TYPES,
 ];
 export const PARENT_DELEGATABLE_ACTIONS = [
   "read",
@@ -297,6 +283,18 @@ export interface GovernedRunOptions {
   ttlMs?: number;
   now?: Date;
   id?: () => string;
+  /**
+   * Extra DELEGATABLE capabilities contributed by a trusted workload
+   * bootstrap - typically the bounded artifact types that workload's children
+   * may publish back.
+   *
+   * Delegatable only, by design: a workload may let a child return a result to
+   * the parent, and can never make the parent able to exercise it. Governance
+   * therefore stays unaware of any particular workload while the demo
+   * boundaries - app/* exercisable-only, sec/INC-42 delegatable-only,
+   * payments/* in neither - are untouched.
+   */
+  additionalDelegatableResources?: string[] | undefined;
 }
 
 export interface GovernedRun {
@@ -333,7 +331,10 @@ export async function startGovernedRun(
       actions: [...PARENT_EXERCISABLE_ACTIONS],
     },
     delegatable: {
-      resources: [...PARENT_DELEGATABLE_RESOURCES],
+      resources: [
+        ...PARENT_DELEGATABLE_RESOURCES,
+        ...(options.additionalDelegatableResources ?? []),
+      ],
       actions: [...PARENT_DELEGATABLE_ACTIONS],
     },
     depth: PARENT_DEPTH,
