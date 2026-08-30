@@ -6,7 +6,7 @@ Update at the end of every item, in the same commit.
 ## Where we are
 
 - Branch `feature/runtime-governor`, pushed and in sync with origin.
-- `npm run check` green — **219 tests, 21 files**, typecheck and both builds pass.
+- `npm run check` green — **234 tests, 22 files**, typecheck and both builds pass.
   The launcher flake is fixed (verified 8/8 plus three full runs).
 - Hard Governance is complete and reachable from the real production path. Per
   the project boundary, do not expand it further without a concrete
@@ -95,7 +95,11 @@ whether something is permitted, stop and report rather than adding it.
 | Router — HOW (DIRECT / SERIAL / PARALLEL, decided independently of WHO) | done |
 | ContextBroker (least context, Return-Gate boundary) | done |
 | ExecutionEngine (round-based, waves, defer ceiling) | done |
-| Todo TaskGraph + integrated demo | **not started — stopped for review** |
+| Todo TaskGraph + integrated run | done |
+| UIPlan / TestPlan bounded Return-Gate types | done |
+| Real delegation + Resource/Artifact Gate adapters | done |
+| Backend denial + recovery in the same run | done |
+| Phase 6 case suite / measurement | **not started — stopped for review** |
 
 ### Two envelopes, deliberately separate
 
@@ -130,13 +134,22 @@ Tuning should come from a deterministic scenario matrix against the integrated
 graph, not intuition. `RouterPolicy` and `EnginePolicy` are both injectable, so
 that needs no routing changes.
 
-**One constraint the Todo graph must design around:** a delegated child's raw
-output cannot reach a parent task. It carries the child's principal, so the
-ContextBroker withholds it, and the engine refuses to dispatch the dependent
-task. The only child-to-parent path is a published bounded artifact. If
-`ui_plan` or `test_plan` are produced by children and consumed by the parent,
-they need registered artifact types through the existing Artifact Gate — see
-BACKLOG. Otherwise author those steps as REUSE work.
+**Artifact visibility is directional**, which the integrated run forced into the
+open:
+
+    parent -> child     briefing. Parent already holds it, child is narrower.
+    child -> parent     declassification. Return Gate only.
+    sibling -> sibling  never.
+
+`UIPlan` and `TestPlan` are registered bounded types, so a delegated planner
+publishes its result and the parent's `implementation` step consumes the
+published artifact. Both are `delegatable`-only; `app/*` exercisable-only,
+`sec/INC-42` delegatable-only and `payments/*` forbidden are unchanged.
+
+**Not yet exercised against a real runtime.** The Todo adapters are
+deterministic - real gates and real delegation, but no model call and no
+container. Docker is not running on this host and the runtime image is absent,
+so the AgentService/container probe has NOT been executed.
 
 The other open front is evidence: the Run Inspector has nothing on screen yet,
 and everything it needs is already a ledger query — `budgetView`,

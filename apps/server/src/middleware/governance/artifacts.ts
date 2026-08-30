@@ -46,7 +46,7 @@ export type ArtifactResult<T> =
  * free text" therefore holds because the spec language cannot express a field
  * that would admit them — not because a validation branch remembers to say no.
  */
-type FieldSpec =
+export type FieldSpec =
   | { kind: "enum"; values: readonly string[] }
   | { kind: "int"; min: number; max: number }
   | { kind: "window" };
@@ -59,6 +59,23 @@ const FIELD_SPECS: Record<string, Record<string, FieldSpec>> = {
     verdict: { kind: "enum", values: ["expected", "anomalous", "inconclusive"] },
   },
 };
+
+/**
+ * Register the field shapes for an artifact type.
+ *
+ * A workload registers its own bounded types here rather than governance
+ * knowing about any particular workload. The spec language still has no
+ * free-text kind, so a registration cannot open a prose channel however it is
+ * written - that property belongs to the language, not to who calls this.
+ *
+ * Idempotent, so seeding twice is safe.
+ */
+export function registerArtifactFieldSpecs(
+  artifactType: string,
+  specs: Record<string, FieldSpec>,
+): void {
+  FIELD_SPECS[artifactType] = { ...specs };
+}
 
 function isBoundedInt(value: unknown, min: number, max: number): boolean {
   return (

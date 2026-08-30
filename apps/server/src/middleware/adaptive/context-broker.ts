@@ -28,10 +28,18 @@
  *   downstream task
  *
  * Runtime task artifacts and Bouncer Return-Gate artifacts are NOT the same
- * thing. A child's own task output carries the child's principal id, and the
- * visibility rule below only admits own-output to its own producer — so a raw
- * child result cannot reach the parent by construction. The only child-to-
- * parent path is a published artifact with the parent named as a recipient.
+ * thing. A child's own task output carries the child's principal id, and own
+ * output flows only DOWNWARD — to its producer and that producer's
+ * descendants. A raw child result therefore cannot reach its parent by
+ * construction; the only upward path is a published artifact naming the
+ * recipient.
+ *
+ * Direction is the whole distinction:
+ *
+ *   parent -> child     briefing. The parent already holds the value and the
+ *                       child is strictly narrower, so nothing is declassified.
+ *   child -> parent     declassification. Requires the Return Gate.
+ *   sibling -> sibling  neither is in the other's ancestry, so never.
  */
 
 import type { ExecutionEnvelope } from "./execution-envelope.js";
@@ -100,16 +108,22 @@ type Visibility =
 /**
  * Can this executor see this artifact?
  *
- * Own task output is visible only to the principal that produced it. That one
- * rule is what keeps a child's raw result away from its parent — the parent is
- * a different principal, so the child's own output simply never matches.
+ * Own task output is visible to its producer and to that producer's
+ * DESCENDANTS. A child may read what the parent that spawned it produced —
+ * that is briefing, and the child is strictly narrower — but nothing flows the
+ * other way, because a parent is never in its child's ancestry. Siblings see
+ * neither the other's output for the same reason.
  */
 function visibilityFor(
   artifact: ContextArtifact,
   executorPrincipalId: string,
+  executorAncestry: readonly string[],
 ): Visibility {
   if (artifact.origin === "own_task_output") {
-    if (artifact.producedByPrincipalId === executorPrincipalId) {
+    if (
+      artifact.producedByPrincipalId === executorPrincipalId ||
+      executorAncestry.includes(artifact.producedByPrincipalId)
+    ) {
       return { visible: true };
     }
     return {
@@ -118,7 +132,8 @@ function visibilityFor(
       detail:
         "raw task output belongs to " +
         artifact.producedByPrincipalId +
-        "; a value reaches another principal only through the Return Gate",
+        ", which is not this executor or an ancestor of it; a value reaches a " +
+        "principal outside that line only through the Return Gate",
     };
   }
 
@@ -143,6 +158,12 @@ export function projectContext(
   task: TaskSpec,
   envelope: ExecutionEnvelope,
   available: readonly ContextArtifact[],
+  /**
+   * Principals above this executor, nearest first. Supplied by the engine from
+   * the real grant chain. Empty means "no ancestors", which is the strict
+   * default — a caller that forgets it gets less context, never more.
+   */
+  executorAncestry: readonly string[] = [],
 ): ProjectedContext {
   const executorPrincipalId = envelope.executorPrincipalId;
   const required = new Set(task.requiredArtifacts);
@@ -167,7 +188,7 @@ export function projectContext(
       });
       continue;
     }
-    const visibility = visibilityFor(artifact, executorPrincipalId);
+    const visibility = visibilityFor(artifact, executorPrincipalId, executorAncestry);
     if (visibility.visible) {
       included.push({
         id: artifact.id,

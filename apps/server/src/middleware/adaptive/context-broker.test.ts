@@ -104,6 +104,32 @@ describe("ContextBroker", () => {
     expect(projection.withheld[0]?.detail).toContain("Return Gate");
   });
 
+  it("briefs a child with what its parent produced", () => {
+    // Downward is not declassification: the parent already holds the value and
+    // the child is strictly narrower.
+    const spec = task({ id: "plan", requiredArtifacts: ["workspace_summary"] });
+    const projection = projectContext(
+      spec,
+      viewFor(CHILD, "grant-child", spec),
+      [ownOutput("workspace_summary", PARENT, { files: 12 })],
+      [PARENT],
+    );
+    expect(projection.included.map((item) => item.id)).toEqual(["workspace_summary"]);
+  });
+
+  it("still refuses a sibling's output even with an ancestry supplied", () => {
+    const spec = task({ id: "plan", requiredArtifacts: ["sibling_notes"] });
+    const projection = projectContext(
+      spec,
+      viewFor(CHILD, "grant-child", spec),
+      [ownOutput("sibling_notes", "agent-sibling", { secret: true })],
+      [PARENT],
+    );
+    // A sibling is in neither line.
+    expect(projection.included).toEqual([]);
+    expect(projection.withheld[0]?.reason).toBe("NOT_VISIBLE_TO_EXECUTOR");
+  });
+
   it("lets the same value through once it is published to the parent", () => {
     const spec = task({ id: "review", requiredArtifacts: ["finding"] });
     const projection = projectContext(spec, viewFor(PARENT, "grant-parent", spec), [

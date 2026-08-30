@@ -31,3 +31,10 @@ One line per finding. Decided at checkpoints, not implemented mid-stream.
 - Routing hints (`specialistRequired`, `independent`, `expectedUtilityGain`, `expectedIncrementalCost`) are DECLARED by the graph author, not observed telemetry. Do not present them as measured.
 - `ExecutionEnvelope` is a planning and context-scoping view only. Nothing downstream may treat it as permission; `authorize()` against the grant remains the only ALLOW/DENY source.
 - SCHEMA NEED (Return Gate): if the Todo demo wants a child to hand `ui_plan` or `test_plan` to its parent, those need registered bounded artifact types with per-field specs, added through the existing Artifact Gate the way `SecurityFinding v1` was. Do NOT add a generic free-text artifact type as a shortcut - that would reopen the declassification channel the Return Gate exists to bound. Fields must be enums/bounded ints/structured shapes, never prose.
+
+## Todo workload notes
+
+- The integrated run is exercised with DETERMINISTIC adapters: real Resource Gate, real DelegationService, real Artifact Gate, but no model call and no container. A real AgentService/Codex/container probe has NOT been run - Docker was not running on this host and the runtime image was absent. Do not claim end-to-end runtime verification until that probe exists and is labelled separately.
+- Artifact visibility is directional: own task output flows to its producer and that producer's descendants. Parent->child is briefing, child->parent needs the Return Gate, sibling->sibling never. This surfaced when a delegated planner could not see the workspace_summary its own parent produced.
+- `optional_reviewer` is dropped by budget pressure, not by policy. If a scenario needs it dropped for another reason, add the reason rather than lowering its utility hint.
+- Routing constants are still the initial declared heuristics. Tuning should come from a scenario matrix over this graph, not intuition; `RouterPolicy` and `EnginePolicy` are injectable so no routing change is needed.

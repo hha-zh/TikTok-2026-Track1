@@ -110,10 +110,16 @@ function delegateSpecialist(node: TaskSpec, context: CandidateContext): Candidat
     };
   }
 
+  // Probe the scope a delegated executor would actually receive, which may be
+  // wider than the task's own needs: it has to publish its result back.
+  const requested = node.delegatedAuthority ?? {
+    resources: node.resources,
+    actions: node.actions,
+  };
   const derivation = deriveChildEnvelope(
     context.state.envelope,
     {
-      exercisable: { resources: [...node.resources], actions: [...node.actions] },
+      exercisable: { resources: [...requested.resources], actions: [...requested.actions] },
       delegatable: { resources: [], actions: [] },
       maxTokens: node.estimatedTokens,
       maxToolCalls: context.state.envelope.maxToolCalls,

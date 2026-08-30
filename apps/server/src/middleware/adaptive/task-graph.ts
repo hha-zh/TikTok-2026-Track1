@@ -52,6 +52,17 @@ export interface TaskSpec {
    */
   optional?: boolean | undefined;
   hints?: TaskRoutingHints | undefined;
+  /**
+   * Authority a DELEGATED executor needs, when it differs from what the task
+   * needs to run at all.
+   *
+   * Generic, not workload-specific: a delegated executor is a separate
+   * principal, so returning a value to its parent costs publication authority
+   * the parent never needs when it does the work itself. Without this the
+   * delegate feasibility probe would test the wrong scope and a delegation
+   * would look legal at planning time and fail at dispatch.
+   */
+  delegatedAuthority?: { resources: string[]; actions: string[] } | undefined;
 }
 
 export interface TaskGraph {

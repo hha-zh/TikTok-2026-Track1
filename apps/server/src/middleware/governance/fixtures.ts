@@ -214,9 +214,23 @@ export const PARENT_EXERCISABLE_RESOURCES = [
  * to read the audit slice while being unable to read it itself. The artifact
  * type rides in the same set so a derived child can publish its finding.
  */
+/**
+ * Workload artifact types a delegated child may publish back.
+ *
+ * These are the MINIMUM authority a planning child needs to return a bounded
+ * result through the Return Gate. They are added to `delegatable` only: the
+ * parent can cause a plan to be produced and published to it, and still cannot
+ * publish one itself.
+ *
+ * Named here as literals rather than imported so governance keeps no dependency
+ * on any workload; the workload asserts they match.
+ */
+export const WORKLOAD_ARTIFACT_TYPES = ["UIPlan", "TestPlan"];
+
 export const PARENT_DELEGATABLE_RESOURCES = [
   RESOURCE_AUDIT,
   ARTIFACT_SECURITY_FINDING,
+  ...WORKLOAD_ARTIFACT_TYPES,
 ];
 export const PARENT_DELEGATABLE_ACTIONS = [
   "read",

@@ -26,6 +26,7 @@
 
 import type { JsonStore } from "../../store.js";
 import type { GovernanceLedger } from "../evidence/ledger.js";
+import { ancestorPrincipalIds } from "../governance/artifacts.js";
 import { resolveGrant } from "../governance/grant-resolver.js";
 import type { GovernanceState, Principal, ReasonCode } from "../governance/types.js";
 import { buildCandidates } from "./candidates.js";
@@ -74,10 +75,25 @@ export interface TaskExecutionRequest {
   placement: "REUSE_CURRENT" | "DELEGATE_SPECIALIST";
 }
 
+export interface ProducedArtifact {
+  /** The artifact NAME the task graph uses. */
+  id: string;
+  value: unknown;
+  /**
+   * Set when the value crossed the Return Gate.
+   *
+   * A delegated executor is a separate principal, so its raw output can never
+   * become a parent context artifact. Publishing is the only path, and the
+   * engine VERIFIES the claim against the store rather than believing the
+   * executor - see commitArtifacts.
+   */
+  publishedArtifactId?: string | undefined;
+}
+
 export interface TaskExecutionResult {
   ok: boolean;
   /** What the task ACTUALLY produced. The graph only declared a promise. */
-  producedArtifacts: { id: string; value: unknown }[];
+  producedArtifacts: ProducedArtifact[];
   usage: TaskUsage;
   error?: string | undefined;
 }
@@ -182,6 +198,8 @@ export interface EngineIdentity {
 export class ExecutionEngine {
   private readonly policy: EnginePolicy;
   private readonly routerPolicy: RouterPolicy;
+  /** Monotonic within a run, so invocation ids are unique and traceable. */
+  private invocations = 0;
 
   constructor(private readonly dependencies: EngineDependencies) {
     this.policy = { ...DEFAULT_ENGINE_POLICY, ...dependencies.policy };
@@ -395,6 +413,47 @@ export class ExecutionEngine {
     return finish("ROUND_LIMIT");
   }
 
+  private commitArtifacts(
+    produced: ProducedArtifact[],
+    executorPrincipalId: string,
+  ): { ok: true; artifacts: ContextArtifact[] } | { ok: false; error: string } {
+    const database = this.dependencies.store.snapshot();
+    const artifacts: ContextArtifact[] = [];
+    for (const item of produced) {
+      if (item.publishedArtifactId === undefined) {
+        artifacts.push({
+          id: item.id,
+          origin: "own_task_output",
+          producedByPrincipalId: executorPrincipalId,
+          value: item.value,
+        });
+        continue;
+      }
+      // Verified, not trusted: the Return Gate must actually have run.
+      const stored = database.artifacts.find(
+        (candidate) => candidate.id === item.publishedArtifactId,
+      );
+      if (!stored) {
+        return { ok: false, error: "published artifact not found: " + item.id };
+      }
+      if (!stored.published) {
+        return { ok: false, error: "artifact was never published: " + item.id };
+      }
+      if (stored.ownerPrincipalId !== executorPrincipalId) {
+        return { ok: false, error: "published artifact belongs to another principal: " + item.id };
+      }
+      artifacts.push({
+        id: item.id,
+        origin: "published_finding",
+        producedByPrincipalId: stored.ownerPrincipalId,
+        recipients: [...stored.recipients],
+        artifactType: stored.type,
+        value: stored.fields,
+      });
+    }
+    return { ok: true, artifacts };
+  }
+
   /**
    * One task, start to finish.
    *
@@ -468,12 +527,21 @@ export class ExecutionEngine {
     const envelope = deriveExecutionEnvelope({
       state,
       task: node,
+      invocationId: `${identity.runId}:${node.id}:${this.invocations += 1}`,
       ...(this.dependencies.executionPolicy
         ? { policy: this.dependencies.executionPolicy }
         : {}),
     });
 
-    const context = projectContext(node, envelope, artifacts);
+    // Real ancestry from the grant chain, so a delegated child can be briefed
+    // with what its parent produced while nothing flows back up without the
+    // Return Gate.
+    const context = projectContext(
+      node,
+      envelope,
+      artifacts,
+      ancestorPrincipalIds(this.dependencies.store, executorGrantId),
+    );
     if (context.missingRequired.length > 0) {
       return fail(
         "required context unavailable to this executor: " +
@@ -515,15 +583,11 @@ export class ExecutionEngine {
       };
     }
 
-    const committed: ContextArtifact[] = result.producedArtifacts.map((item) => ({
-      id: item.id,
-      // A delegated child's output carries the CHILD's principal, so the
-      // ContextBroker will keep it away from the parent. The only way it
-      // reaches the parent is the Return Gate.
-      origin: "own_task_output",
-      producedByPrincipalId: executorPrincipalId,
-      value: item.value,
-    }));
+    const commit = this.commitArtifacts(result.producedArtifacts, executorPrincipalId);
+    if (!commit.ok) {
+      return { ...fail(commit.error), usage: result.usage };
+    }
+    const committed = commit.artifacts;
 
     return {
       taskId: node.id,
@@ -536,6 +600,17 @@ export class ExecutionEngine {
   }
 }
 
+/**
+ * Turn what an executor says it produced into context artifacts.
+ *
+ * An unpublished value carries the EXECUTOR's principal, so a delegated
+ * child's raw output is kept away from the parent by the ContextBroker's
+ * visibility rule rather than by anything here.
+ *
+ * A published claim is checked against the store: the artifact must exist, be
+ * published, and name recipients. Believing the executor instead would make
+ * the Return Gate bypassable by any code that sets a field.
+ */
 function effectiveRemaining(state: GovernanceState): number {
   return Math.min(
     state.envelope.maxTokens - state.grantState.tokensUsed,

@@ -54,6 +54,9 @@ export interface EffectiveBudgetView {
 }
 
 export interface ExecutionEnvelope {
+  runId: string;
+  /** Identifies this one dispatch, so evidence can be traced to it. */
+  invocationId: string;
   taskId: string;
   executorPrincipalId: string;
   /** The grant this view was narrowed FROM. Authority still lives there. */
@@ -98,6 +101,8 @@ export function deriveExecutionEnvelope(input: {
   state: GovernanceState;
   task: TaskSpec;
   policy?: ExecutionPolicy | undefined;
+  /** Supplied by the caller so this stays pure and deterministic. */
+  invocationId?: string | undefined;
 }): ExecutionEnvelope {
   const { state, task, policy } = input;
   const principal = state.envelope.exercisable;
@@ -118,6 +123,10 @@ export function deriveExecutionEnvelope(input: {
   const runCap = state.runState.maxTokens;
 
   return {
+    runId: state.envelope.runId,
+    invocationId:
+      input.invocationId ??
+      `${state.envelope.runId}:${task.id}:${state.envelope.principalId}`,
     taskId: task.id,
     executorPrincipalId: state.envelope.principalId,
     sourceGrantId: state.envelope.id,
