@@ -1,3 +1,14 @@
+import type { GovernanceEvent } from "./middleware/evidence/types.js";
+import type {
+  Artifact,
+  ArtifactSchema,
+  Envelope,
+  GrantState,
+  MockResource,
+  Principal,
+  RunState,
+} from "./middleware/governance/types.js";
+
 export type AgentStatus = "ready" | "busy" | "stopped" | "error";
 export type RunStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
 export type MessageRole = "user" | "assistant";
@@ -48,6 +59,14 @@ export interface Database {
   agents: Agent[];
   messages: Message[];
   runs: AgentRun[];
+  principals: Principal[];
+  envelopes: Envelope[];
+  governanceEvents: GovernanceEvent[];
+  runStates: RunState[];
+  grantStates: GrantState[];
+  mockResources: MockResource[];
+  artifacts: Artifact[];
+  artifactSchemas: ArtifactSchema[];
 }
 
 export interface CreateAgentInput {
