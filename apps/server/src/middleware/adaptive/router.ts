@@ -133,7 +133,7 @@ export interface CandidateAxes {
   planningFit: PlanningFit;
   structurallyNarrower: boolean;
   /** Routable this round. */
-  feasible: boolean;
+  routableNow: boolean;
 }
 
 export interface RoutingWave {
@@ -267,7 +267,7 @@ function axesOf(candidates: Candidate[]): CandidateAxes[] {
     hardEligible: candidate.hardEligible,
     planningFit: candidate.planningFit,
     structurallyNarrower: candidate.authority.structurallyNarrower,
-    feasible: candidate.routableNow,
+    routableNow: candidate.routableNow,
   }));
 }
 
@@ -344,7 +344,8 @@ export function route(inputs: RoutingInputs): RoutingPlan {
     const delegate = candidateFor(candidates, "DELEGATE_SPECIALIST");
     const views = axesOf(candidates);
     const isolationGain = authorityIsolationGain(node, delegate, policy);
-    // Feasible = Authorized AND Affordable. Only feasible candidates may be
+    // Routable now = hard-eligible AND the declared estimate fits. Only
+    // routable candidates may be
     // soft-ranked: spare budget never creates permission, and permission never
     // creates capacity.
     const reuseFeasible = reuse?.routableNow === true;

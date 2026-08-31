@@ -146,12 +146,6 @@ export interface Candidate {
    * the same as "impossible".
    */
   routableNow: boolean;
-  /**
-   * Retained alias of `routableNow` so existing call sites keep reading
-   * naturally. Do not treat it as the only runtime truth: it cannot
-   * distinguish a hard impossibility from a pessimistic estimate.
-   */
-  feasible: boolean;
   authority: AuthorityView;
   budget: BudgetView;
   /** Mirrors `authority.legal`. Kept so existing call sites read naturally. */
@@ -311,14 +305,13 @@ function budgetViewFor(
 function eligibility(
   authority: AuthorityView,
   budget: BudgetView,
-): Pick<Candidate, "hardEligible" | "planningFit" | "routableNow" | "feasible"> {
+): Pick<Candidate, "hardEligible" | "planningFit" | "routableNow"> {
   const hardEligible = authority.legal && budget.hardCapacityAvailable;
   const routableNow = hardEligible && budget.planningFit === "FITS_ESTIMATE";
   return {
     hardEligible,
     planningFit: budget.planningFit,
     routableNow,
-    feasible: routableNow,
   };
 }
 

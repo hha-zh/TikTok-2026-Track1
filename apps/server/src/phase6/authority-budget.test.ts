@@ -179,12 +179,12 @@ describe("Authority and Budget are peer views on every candidate", () => {
     expect(delegate?.budget.parallelCapacity).toBe(2);
   });
 
-  it("computes feasible as authority.legal AND budget.affordable", async () => {
+  it("computes routableNow as hardEligible plus planning fit", async () => {
     const { state, identity } = await harness();
     const node = task({ id: "plan", resources: [], actions: ["model:invoke"] });
     for (const candidate of candidatesFor(node, state, identity.principal)) {
-      expect(candidate.feasible).toBe(
-        candidate.authority.legal && candidate.budget.affordable,
+      expect(candidate.routableNow).toBe(
+        candidate.hardEligible && candidate.planningFit === "FITS_ESTIMATE",
       );
     }
   });

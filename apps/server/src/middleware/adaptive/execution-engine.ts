@@ -24,6 +24,7 @@
  * caught rather than rescued by a stale plan.
  */
 
+import { randomUUID } from "node:crypto";
 import type { JsonStore } from "../../store.js";
 import type { GovernanceLedger } from "../evidence/ledger.js";
 import type { GovernanceEventPayloadMap } from "../evidence/types.js";
@@ -160,15 +161,6 @@ interface CandidateSnapshot {
   entries: { node: TaskSpec; candidates: Candidate[] }[];
 }
 
-/**
- * Correlates a routing decision with the invocation it produced and that
- * invocation's outcome. Deterministic from state already in hand, so nothing
- * extra has to be threaded through the router.
- */
-function decisionIdFor(runId: string, roundIndex: number, taskId: string): string {
-  return `${runId}:r${roundIndex}:${taskId}`;
-}
-
 interface RoundRecord {
   index: number;
   plan: RoutingPlan;
@@ -179,6 +171,12 @@ interface RoundRecord {
     usage: TaskUsage;
     note: string;
   }[];
+}
+
+function requireDecisionId(ids: Map<string, string>, taskId: string): string {
+  const decisionId = ids.get(taskId);
+  if (!decisionId) throw new Error("routing decision id missing for task " + taskId);
+  return decisionId;
 }
 
 export interface EngineFailure {
@@ -378,6 +376,12 @@ export class ExecutionEngine {
       const candidatesByTask = new Map(
         snapshot.entries.map((entry) => [entry.node.id, entry.candidates]),
       );
+      // Correlation metadata only. Generate once per decision and reuse that
+      // exact value at dispatch; reconstruction/resume must never collide with
+      // a previous decision for the same run/task/round tuple.
+      const decisionIds = new Map(
+        snapshot.entries.map((entry) => [entry.node.id, randomUUID()]),
+      );
 
       const plan = route({
         entries: snapshot.entries,
@@ -410,7 +414,7 @@ export class ExecutionEngine {
         const node = graph.nodes.find((item) => item.id === assignment.nodeId);
         const built = candidatesByTask.get(assignment.nodeId) ?? [];
         await this.record(identity, "routing_decision", {
-          decisionId: decisionIdFor(identity.runId, index, assignment.nodeId),
+          decisionId: requireDecisionId(decisionIds, assignment.nodeId),
           taskId: assignment.nodeId,
           disposition: assignment.disposition,
           placement: assignment.placement,
@@ -527,7 +531,7 @@ export class ExecutionEngine {
               member.assignment,
               identity,
               artifacts,
-              decisionIdFor(identity.runId, index, member.node.id),
+              requireDecisionId(decisionIds, member.node.id),
             ),
           ),
         );
