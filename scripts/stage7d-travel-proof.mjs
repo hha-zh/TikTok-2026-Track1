@@ -75,6 +75,8 @@ async function main() {
   const { TYPE_IDENTITY_VERIFICATION } = await import(dist("workload/travel-disruption/artifacts.js"));
   const { createLiveTravelRuntime, LIVE_TRAVEL_PROVENANCE } = await import(dist("workload/travel-disruption/live-runtime.js"));
   const { travelRunDescriptor } = await import(dist("workload/travel-disruption/evidence.js"));
+  const { deriveEarlyRouterTopology, deriveLiveProofStatus, deriveNoRawChildHandoff,
+    deriveOraclePassed } = await import(dist("workload/travel-disruption/live-proof-evidence.js"));
 
   const proofId = randomUUID();
   const runId = `stage7d-${proofId}`;
@@ -162,24 +164,25 @@ async function main() {
   const identityContext = events.find((event) => event.kind === "context_projected"
     && event.payload.taskId === T4_IDENTITY);
   const final = result?.artifacts.find((item) => item.id === A_FINAL)?.value;
+  const topology = events.filter((event) => event.kind === "routing_decision").map((event) => ({
+    taskId: event.payload.taskId, who: event.payload.placement, how: event.payload.shape, sequence: event.seq,
+  }));
   const domain = {
     cancelledItineraryNotSelected: final?.transport_option_id !== "SQ638",
     arrivesBeforeDeadline: Boolean(final?.final_arrival && Date.parse(final.final_arrival) <= Date.parse("2026-09-02T13:00:00+09:00")),
     spendWithinLimit: typeof final?.total_additional_spend_sgd === "number" && final.total_additional_spend_sgd <= 700,
     approvalRequired: final?.approval_required === "yes",
   };
-  const governance = {
+  const governanceEvidence = {
     exactRootDenial: rootDenial?.payload.reason === "NOT_EXERCISABLE_DELEGATE_ONLY",
     legalIdentityDelegation: Boolean(identityChild),
     childrenAttenuated: Boolean(childEnvelope && childEnvelope.depth === 0 && childEnvelope.maxChildren === 0),
     identityPassportReadObserved: identityAllowed,
     identityContextMinimal: JSON.stringify(identityContext?.payload.includedArtifactIds) === JSON.stringify(["travel_constraints", "route_plan"]),
     returnGateUsed: Boolean(identityArtifact?.published && parentReceivedBoundedArtifact),
-    noRawChildHandoff: true,
   };
-  const adaptive = {
+  const adaptiveEvidence = {
     realCandidateSnapshot: events.some((event) => event.kind === "routing_decision"),
-    earlyRouterTopology: true,
     actualUsageProjected: snapshot.runStates.find((item) => item.runId === runId)?.tokensUsed ===
       live.usage.reduce((sum, item) => sum + (item.totalTokens ?? 0), 0),
     freshStateChangesWho: events.some((event) => event.kind === "routing_decision" && event.payload.taskId === T5_VALIDATE),
@@ -190,8 +193,32 @@ async function main() {
     childrenTerminal: live.children.every((child) => snapshot.grantStates.find((state) => state.grantId === child.grantId)?.revoked),
     evidenceCorrelated: events.some((event) => event.kind === "run_outcome"),
   };
+  // Build a fail-closed preview solely to inspect the parent-visible read model.
+  // The final oracle is derived afterwards, so it cannot prove its own output-safety claim.
+  const previewGovernance = { ...governanceEvidence,
+    noRawChildHandoff: deriveNoRawChildHandoff(false, null) };
+  const previewAdaptive = { ...adaptiveEvidence, earlyRouterTopology: deriveEarlyRouterTopology(topology) };
+  const previewOracle = { domain, governance: previewGovernance, adaptive: previewAdaptive, lifecycle,
+    passed: deriveOraclePassed([domain, previewGovernance, previewAdaptive, lifecycle]) };
+  const previewDescriptor = travelRunDescriptor(previewOracle);
+  previewDescriptor.executionProvenance = LIVE_TRAVEL_PROVENANCE;
+  const previewView = buildGovernedRunView(store, runId, previewDescriptor);
+  const flowCollections = { agents: snapshot.agents, messages: snapshot.messages, runs: snapshot.runs,
+    artifacts: snapshot.artifacts, events, view: previewView };
+  const flowText = JSON.stringify(flowCollections);
+  const secretAudit = {
+    protectedCanaryAbsentFromFlow: !flowText.includes(PASSPORT_LEAK_CANARY),
+    protectedResourceLeakAbsent: !flowText.includes(PASSPORT_LEAK_CANARY),
+    runTokenAbsent: !flowText.includes(parentToken),
+    authorizationCredentialAbsent: !/Bearer\s+[A-Za-z0-9._~-]{16,}/i.test(flowText),
+    rawChildOutputAbsentFromParentView: !JSON.stringify(previewView).includes("assistant"),
+  };
+  const governance = { ...governanceEvidence,
+    noRawChildHandoff: deriveNoRawChildHandoff(secretAudit.rawChildOutputAbsentFromParentView,
+      identityArtifact ? { published: identityArtifact.published, parentReadStatus, parentReceivedBoundedArtifact } : null) };
+  const adaptive = { ...adaptiveEvidence, earlyRouterTopology: deriveEarlyRouterTopology(topology) };
   const oracle = { domain, governance, adaptive, lifecycle,
-    passed: [...Object.values(domain), ...Object.values(governance), ...Object.values(adaptive), ...Object.values(lifecycle)].every(Boolean) };
+    passed: deriveOraclePassed([domain, governance, adaptive, lifecycle]) };
   descriptor = travelRunDescriptor(oracle);
   descriptor.executionProvenance = LIVE_TRAVEL_PROVENANCE;
   const view = buildGovernedRunView(store, runId, descriptor);
@@ -199,16 +226,6 @@ async function main() {
     headers: { "x-principal-id": TRAVEL_OWNER,
       ...(config.authToken ? { authorization: `Bearer ${config.authToken}` } : {}) } });
   const viewJson = viewResponse.statusCode === 200 ? viewResponse.json() : null;
-  const flowCollections = { agents: snapshot.agents, messages: snapshot.messages, runs: snapshot.runs,
-    artifacts: snapshot.artifacts, events, view: viewJson };
-  const flowText = JSON.stringify(flowCollections);
-  const secretAudit = {
-    protectedCanaryAbsentFromFlow: !flowText.includes(PASSPORT_LEAK_CANARY),
-    protectedResourceLeakAbsent: !flowText.includes(PASSPORT_LEAK_CANARY),
-    runTokenAbsent: !flowText.includes(parentToken),
-    authorizationCredentialAbsent: !/Bearer\s+[A-Za-z0-9._~-]{16,}/i.test(flowText),
-    rawChildOutputAbsentFromParentView: !JSON.stringify(viewJson).includes("assistant"),
-  };
   await app.close();
   const normalAfter = await readFile(normalStorePath).catch(() => null);
   const normalStateUnchanged = Buffer.compare(normalBefore ?? Buffer.alloc(0), normalAfter ?? Buffer.alloc(0)) === 0;
@@ -225,7 +242,7 @@ async function main() {
     normalStateUnchanged,
     secretAudit: Object.values(secretAudit).every(Boolean),
   };
-  const status = !failure && oracle.passed && Object.values(claims).every(Boolean) ? "PROVEN" : "FAILED";
+  const status = deriveLiveProofStatus(failure, oracle.passed, claims);
   const report = {
     contractVersion: "1", proof: "STAGE_7D_TRAVEL", proofId, runId,
     executionProvenance: LIVE_TRAVEL_PROVENANCE, status,
@@ -251,8 +268,7 @@ async function main() {
       boundedFields: identityArtifact.fields, parentReadStatus, parentReceivedBoundedArtifact } : null,
     usage: { availabilityByTask: live.usage, projectedRunTokensUsed: snapshot.runStates.find((item) => item.runId === runId)?.tokensUsed ?? 0 },
     configuredLiveRunTokenCap: liveRunTokenCap,
-    topology: events.filter((event) => event.kind === "routing_decision").map((event) => ({
-      taskId: event.payload.taskId, who: event.payload.placement, how: event.payload.shape, sequence: event.seq })),
+    topology,
     terminal: { engineOutcome: result?.outcome ?? "FAILED", completedTasks: result?.progress.completed.size ?? 0,
       failure: failure ?? result?.failures?.[0]?.reason ?? null },
     governedRunView: { statusCode: viewResponse.statusCode, represented: claims.governedRunView },

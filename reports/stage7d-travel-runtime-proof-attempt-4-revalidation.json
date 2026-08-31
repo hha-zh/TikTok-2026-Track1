@@ -1,0 +1,21 @@
+{
+  "contractVersion": "1",
+  "proof": "STAGE_7D_3_ATTEMPT_4_FORENSIC_REVALIDATION",
+  "sourceReport": "reports/stage7d-travel-runtime-proof-attempt-4.json",
+  "executionProvenance": {
+    "value": "LIVE_CONTAINER_CODEX_ARK",
+    "quality": "DECLARED",
+    "support": [
+      "configured ContainerCodexRunner path",
+      "completed live Agent runs",
+      "provider-reported usage"
+    ],
+    "cryptographicProviderAttestation": false
+  },
+  "externalProviderRuns": 0,
+  "noRawChildHandoff": "PASS",
+  "earlyRouterTopology": "PASS",
+  "oracleRevalidated": "PASS",
+  "historicalReportChanged": false,
+  "sourceReportSha256": "3fd18cc02d3ea32da522d9459385a6ed8e68aef174fc67534da75392349d1e61"
+}
