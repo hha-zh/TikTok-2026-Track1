@@ -200,11 +200,11 @@ The reusable deterministic lifecycle function is `runTravelLifecycle`, which com
 
 ## 13. Tests
 
-Focused validation:
+Focused integration validation:
 
 ```text
-4 test files passed
-28 tests passed
+6 test files passed
+71 tests passed
 server TypeScript check passed
 ```
 
@@ -218,10 +218,10 @@ Coverage includes:
 - descriptor metadata persistence/reload;
 - backend loopback default and explicit override.
 
-Full validation before the final documentation pass:
+Full validation after integration with the remote Stage 7D.4/7D.5 base:
 
 ```text
-apps/server: 35 test files passed, 385 tests passed
+apps/server: 37 test files passed, 425 tests passed
 npm run check: PASS
   server/web typecheck: PASS
   server tests: PASS
