@@ -6,12 +6,15 @@
  * Codex container, talking to a REAL Ark/Responses endpoint, calling back into
  * the control plane over `host.docker.internal`, mediated by the real gates.
  *
- * It is a submission requirement, not an optional benchmark. Until it runs, the
- * honest status is:
+ * It is a submission requirement, not an optional benchmark. The final isolated
+ * Phase 6D probe has run successfully; the current evidence status is:
  *
  *   deterministic middleware semantics        PROVEN
  *   real AgentService / RunnerRequest         PROVEN
- *   external Container / Codex / Ark          NOT PROVEN
+ *   external Container / Codex / Ark          PROVEN
+ *
+ * The script remains available for an explicitly authorized future probe. It
+ * must not be invoked as part of deterministic report regeneration.
  *
  * ── Requirements ───────────────────────────────────────────────────────────
  *   Docker running, and `volc-agent-runtime:local` built

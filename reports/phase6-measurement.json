@@ -3,7 +3,7 @@
   "runtimeLayers": {
     "deterministicMiddlewareSemantics": "PROVEN",
     "realAgentServiceCrossing": "PROVEN",
-    "externalContainerCodexArk": "NOT_PROVEN_UNTIL_RUN"
+    "externalContainerCodexArk": "PROVEN_BY_ISOLATED_PROBE"
   },
   "provenance": {
     "OBSERVED": [
@@ -24,15 +24,15 @@
       "harnessWallClockMs (in-process harness, not provider latency)",
       "expected topology"
     ],
-    "UNAVAILABLE": [
-      "real model token counts",
-      "real provider latency",
-      "real container startup cost"
+    "NOT_MEASURED_BY_DETERMINISTIC_SUITE": [
+      "real model token counts (see phase6-container-probe.json for external proof)",
+      "real provider latency (see phase6-container-probe.json for external proof)",
+      "real container startup cost (see phase6-container-probe.json for external proof)"
     ]
   },
   "authorizeOverhead": {
     "samples": 200,
-    "medianMicros": 1.078,
+    "medianMicros": 0.666,
     "provenance": "OBSERVED"
   },
   "benignSuite": {
@@ -42,8 +42,8 @@
     "provenance": "OBSERVED"
   },
   "caseManifest": {
-    "total": 32,
-    "proven": 31,
+    "total": 38,
+    "proven": 37,
     "partial": 1,
     "notRun": 0,
     "knownLimitations": [
@@ -56,7 +56,7 @@
     ]
   },
   "authorityBudgetInteraction": {
-    "note": "Feasible = Authorized AND Affordable. Neither axis rescues the other. Scenario language leads; AB identifiers are backend references.",
+    "note": "Authority and Budget/Horizon are parallel constraints. hardEligible captures hard governance and capacity; planningFit distinguishes FITS_ESTIMATE from ESTIMATED_SHORTFALL; routableNow is the current routing availability. Neither axis rescues the other.",
     "rows": [
       {
         "scenario": "Todo — relaxed",
@@ -191,7 +191,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0,
-        "harnessWallClockMs": 85.41
+        "harnessWallClockMs": 36.77
       }
     },
     {
@@ -224,7 +224,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 65
+        "harnessWallClockMs": 31.61
       }
     },
     {
@@ -257,7 +257,7 @@
       "synthetic": {
         "fixtureTokensUsed": 11900,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 53.14
+        "harnessWallClockMs": 24.54
       }
     },
     {
@@ -290,7 +290,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 53.49
+        "harnessWallClockMs": 25.54
       }
     },
     {
@@ -323,7 +323,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 61.39
+        "harnessWallClockMs": 28.29
       }
     },
     {
@@ -356,7 +356,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 57.83
+        "harnessWallClockMs": 28.33
       }
     },
     {
@@ -389,7 +389,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0,
-        "harnessWallClockMs": 82.85
+        "harnessWallClockMs": 50.99
       }
     },
     {
@@ -422,7 +422,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 66.27
+        "harnessWallClockMs": 37.55
       }
     },
     {
@@ -455,7 +455,7 @@
       "synthetic": {
         "fixtureTokensUsed": 11900,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 82.45
+        "harnessWallClockMs": 30.66
       }
     },
     {
@@ -488,7 +488,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 72.1
+        "harnessWallClockMs": 29.19
       }
     },
     {
@@ -520,7 +520,7 @@
       "synthetic": {
         "fixtureTokensUsed": 1100,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 56.62
+        "harnessWallClockMs": 24.88
       }
     },
     {
@@ -553,7 +553,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 58.51
+        "harnessWallClockMs": 27.79
       }
     },
     {
@@ -586,7 +586,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0,
-        "harnessWallClockMs": 37.08
+        "harnessWallClockMs": 19.68
       }
     },
     {
@@ -619,7 +619,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 61.79
+        "harnessWallClockMs": 27.24
       }
     },
     {
@@ -652,7 +652,7 @@
       "synthetic": {
         "fixtureTokensUsed": 11900,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 32.76
+        "harnessWallClockMs": 14.11
       }
     },
     {
@@ -685,7 +685,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 56.08
+        "harnessWallClockMs": 28.17
       }
     },
     {
@@ -717,7 +717,7 @@
       "synthetic": {
         "fixtureTokensUsed": 1100,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 42.18
+        "harnessWallClockMs": 21.75
       }
     },
     {
@@ -750,7 +750,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 54.84
+        "harnessWallClockMs": 27.61
       }
     }
   ]

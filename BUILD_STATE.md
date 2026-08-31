@@ -6,14 +6,15 @@ Update at the end of every item, in the same commit.
 ## Where we are
 
 - Phase 6D work is on `fix/backend-freeze`.
-- `npm run check` green — **311 tests, 28 files**, typecheck and both builds pass.
+- **Phase 6D COMPLETE.** `npm run check` green — **313 tests, 29 files**,
+  typecheck and both builds pass.
   The launcher flake is fixed (verified 8/8 plus three full runs).
 - Hard Governance is complete and reachable from the real production path. Per
   the project boundary, do not expand it further without a concrete
   verification bug.
-- **Adaptive Runtime complete through Phase 6C.** Pipeline runs end to end and
+- **Adaptive Runtime complete through Phase 6D.** Pipeline runs end to end and
   the runtime feedback loop is proven by test, not asserted.
-- **Not started:** Run Inspector / frontend, VECTORS.md, README, reproducibility.
+- **Not started:** Run Inspector / frontend and final product-lifecycle design.
 
 ## Item status
 
@@ -73,8 +74,39 @@ See [BACKLOG.md](BACKLOG.md). Blocking ones:
 
 ## Adaptive Runtime — the boundary that must hold
 
-    Hard Governance defines the legal execution space.
-    Adaptive Runtime chooses only inside it.
+Authority Γ and Budget / Execution Horizon B are parallel constraint
+dimensions. They jointly define the admissible runtime space; neither creates
+or rescues the other. Adaptive routing chooses WHO and HOW inside that space.
+Execution outcomes are captured by the GovernanceLedger and projected back
+into the next runtime decision.
+
+### System architecture
+
+```text
+Authority Γ --------------------\
+                                 > admissible runtime space
+Budget / Execution Horizon B ---/              |
+                                                v
+                                      Adaptive WHO / HOW
+                                                |
+                                                v
+                                            Execution
+                                                |
+                                                v
+                                        Runtime outcomes
+
+GovernanceLedger spans authority, decisions, context, invocation, access,
+delegation, Return Gate, usage and task/run outcomes as the cross-cutting
+evidence and runtime-feedback plane.
+```
+
+### Decision pipeline
+
+```text
+Task -> CandidateSnapshot -> AuthorityView + BudgetView
+     -> hardEligible + planningFit -> routableNow
+     -> Router -> WHO + HOW -> dispatch
+```
 
 `CandidateBuilder` marks each placement legal or not using the two existing
 functions in their designed roles — `authorize()` for capacity, then
@@ -107,8 +139,8 @@ whether something is permitted, stop and report rather than adding it.
 | Hard capacity split from declared planning estimate | done |
 | Intrinsic delegation value independent of remaining budget | done |
 | ONE CandidateSnapshot per task/round (router == evidence) | done |
-| decisionId correlation (decision -> invocation -> outcome) | done |
-| TopologyPolicyMode for declared static baselines | done |
+| decisionId UUID correlation (decision -> invocation -> outcome; a replan is a new decision) | done |
+| TopologyPolicyMode for declared static evaluation baselines only | done |
 | Ledger feedback loop proven without manual usage writes | done |
 | External container probe | **PROVEN** on WSL + Docker: real Ark, 200 allowed reads, exact 403 denial, real narrower child, bounded Return Gate |
 | Run Inspector / README | **not started — stopped for review** |
@@ -134,7 +166,13 @@ when headroom is thin.
 
 ## Phase 6C — the feedback loop and what it cost to state honestly
 
-    routing decision -> execution -> tokens_consumed -> projection -> next decision
+### Runtime feedback loop
+
+```text
+Decision_t -> Execution_t -> actual outcome / tokens_consumed
+  -> GovernanceLedger -> RunState / GrantState projections
+  -> CandidateBuilder_(t+1) -> Decision_(t+1)
+```
 
 Every budget number a decision sees is folded out of the ledger. No test in
 `phase6/feedback-loop.test.ts` writes `runState.tokensUsed` or
@@ -160,7 +198,7 @@ over identical state usually agreed — and "usually" is precisely the property 
 governance trail cannot rest on. A test counts real builds against recorded
 decisions; two builds would double the count.
 
-### Router policy constants (declared, not fitted)
+### Router policy constants (deterministic demo/evaluation defaults, not fitted)
 
 | constant | value | note |
 | --- | --- | --- |
@@ -188,7 +226,7 @@ artifacts, plus initial runtime objects.
 | `authorize()` is the only hard verdict primitive | held |
 | No second authorization system in `router.ts` / `candidates.ts` | held |
 | One `GovernanceLedger`, sole append-only runtime evidence trail and event-driven projection update path | held |
-| No raw prompts, protected contents, child output, tokens or credentials persisted | held |
+| Governance evidence persists no raw prompts/provider credentials, protected contents, RUN_TOKEN or raw child output | held |
 | Return Gate mandatory for every child->parent handoff | held |
 | Dispatch-time revalidation survives planning-time approval | held |
 | Declared estimates never reserved against, or folded into, real usage | held |
@@ -196,8 +234,14 @@ artifacts, plus initial runtime objects.
 | `npm run check` green three consecutive runs | held |
 | Complete mediation under `local-process` | **NOT held — container mode only** |
 | Per-model-call Model/Budget mediation | **NOT held — dispatch granularity (HG-14)** |
+| `maxToolCalls` quota enforcement | **NOT held — metadata only** |
 | External Container/Codex/Ark probe executed | **PROVEN — clean isolated probe passed; normal application state unchanged** |
+
+Normal application storage remains separate from governance evidence and may
+persist prompts, assistant outputs, messages and AgentRun data. Child-to-parent
+governed handoff uses bounded typed artifacts; this does not imply that the
+whole JsonStore is event-sourced or content-free.
 
 ## Next action
 
-Backend core is ready to freeze. Frontend / Run Inspector remains a separate phase.
+Backend core is frozen at Phase 6D. Frontend / Run Inspector remains a separate phase.

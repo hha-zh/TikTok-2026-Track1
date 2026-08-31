@@ -26,9 +26,14 @@ One line per finding. Decided at checkpoints, not implemented mid-stream.
 
 ## Adaptive Runtime notes
 
-- `estimatedTokens` on a TaskNode is caller-supplied and unvalidated. The Router uses it for feasibility only; real accounting still comes from `tokens_consumed` after a call returns. Do not claim pre-reservation.
+- `estimatedTokens` on a TaskNode is caller-supplied and unvalidated. The Router
+  uses it for `planningFit` only; `ESTIMATED_SHORTFALL` is not hard exhaustion,
+  and real accounting still comes from `tokens_consumed` after a call returns.
+  Do not claim pre-reservation.
 - Router `DEFER` on a required-but-unaffordable node assumes estimates are pessimistic and real usage may leave room. If estimates prove optimistic this becomes a livelock; the ExecutionEngine needs a defer ceiling.
-- `CandidateBuilder` derives a throwaway envelope with probe ids to test scope feasibility. The real envelope is minted by `DelegationService` at execution time; the probe is discarded and never persisted.
+- `CandidateBuilder` derives a throwaway envelope with probe ids to test scope
+  eligibility. The real envelope is minted by `DelegationService` at execution
+  time; the probe is discarded and never persisted.
 - DEMO DESIGN: with the current fixture no resource-bearing task is legal BOTH ways — `app/*` is exercisable-only and `sec/INC-42` delegatable-only — so the soft REUSE-vs-DELEGATE choice only fires on resource-free reasoning tasks. The Todo graph needs reasoning steps (or a resource in both sets) or the adaptive choice will never be visible on stage.
 - Routing hints (`specialistRequired`, `independent`, `expectedUtilityGain`, `expectedIncrementalCost`) are DECLARED by the graph author, not observed telemetry. Do not present them as measured.
 - `ExecutionEnvelope` is a planning and context-scoping view only. Nothing downstream may treat it as permission; `authorize()` against the grant remains the only ALLOW/DENY source.
@@ -36,7 +41,12 @@ One line per finding. Decided at checkpoints, not implemented mid-stream.
 
 ## Todo workload notes
 
-- The integrated run is exercised with DETERMINISTIC adapters: real Resource Gate, real DelegationService, real Artifact Gate, but no model call and no container. A real AgentService/Codex/container probe has NOT been run - Docker was not running on this host and the runtime image was absent. Do not claim end-to-end runtime verification until that probe exists and is labelled separately.
+- The integrated suite remains the DETERMINISTIC evidence layer: real Resource
+  Gate, DelegationService and Artifact Gate, with injected execution rather
+  than a provider call. Separately, the final isolated AgentService/Codex/
+  container/Ark probe is **PROVEN**; it exercised real allow/deny, recovery,
+  narrower delegation and the bounded Return Gate without changing normal
+  application Agent state. Keep the two evidence layers labelled separately.
 - Artifact visibility is directional: own task output flows to its producer and that producer's descendants. Parent->child is briefing, child->parent needs the Return Gate, sibling->sibling never. This surfaced when a delegated planner could not see the workspace_summary its own parent produced.
 - `optional_reviewer` is dropped by budget pressure, not by policy. If a scenario needs it dropped for another reason, add the reason rather than lowering its utility hint.
 - Routing constants are still the initial declared heuristics. Tuning should come from a scenario matrix over this graph, not intuition; `RouterPolicy` and `EnginePolicy` are injectable so no routing change is needed.

@@ -107,12 +107,19 @@ const inputs = (
 
 describe("Invocation ExecutionEnvelope", () => {
   it("narrows to principal ∩ task and never widens", () => {
-    const view = deriveExecutionEnvelope({
+    const metricsView = deriveExecutionEnvelope({
       state: state(),
       task: task({ id: "a", resources: [RESOURCE_METRICS, RESOURCE_PAYMENTS] }),
     });
-    expect(view.effective.resources).toEqual([RESOURCE_METRICS]);
-    expect(isNarrowing(view, state())).toBe(true);
+    const reasoningView = deriveExecutionEnvelope({
+      state: state(),
+      task: task({ id: "b", resources: [] }),
+    });
+    expect(metricsView.principalId).toBe(reasoningView.principalId);
+    expect(metricsView.effective.resources).toEqual([RESOURCE_METRICS]);
+    expect(reasoningView.effective.resources).toEqual([]);
+    expect(isNarrowing(metricsView, state())).toBe(true);
+    expect(isNarrowing(reasoningView, state())).toBe(true);
   });
 
   it("applies policy as further narrowing, never as a grant", () => {

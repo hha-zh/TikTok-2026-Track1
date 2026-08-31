@@ -28,6 +28,7 @@ import {
   ALL_CASES,
   AUTHORITY_BUDGET_CASES,
   BOUNCER_BOUNDARIES,
+  EXTENSION_EVIDENCE_CASES,
   HARD_GOVERNANCE_CASES,
   MODEL_CROSSING_LIMITATION,
 } from "./case-manifest.js";
@@ -81,6 +82,10 @@ describe("Phase 6 manifest integrity", () => {
     expect(AUTHORITY_BUDGET_CASES.map((entry) => entry.id)).toEqual(
       Array.from({ length: 7 }, (_, index) => `AB-${String(index + 1).padStart(2, "0")}`),
     );
+    expect(EXTENSION_EVIDENCE_CASES.every((entry) => entry.id.startsWith("EX-"))).toBe(
+      true,
+    );
+    expect(new Set(ALL_CASES.map((entry) => entry.id)).size).toBe(ALL_CASES.length);
   });
 
   it("gives every case evidence and every non-proven case a stated limitation", () => {
