@@ -74,6 +74,12 @@ describe("Stage 7C stable governed-run evidence contract", () => {
       category: "DENY", resourceId: RESOURCE_PASSPORT, verdict: "DENY",
       reasonCode: "NOT_EXERCISABLE_DELEGATE_ONLY",
     }));
+    expect(body.run.governanceEvents.find((event) => event.category === "DENY"
+      && event.resourceId === RESOURCE_PASSPORT)?.taskId).toBeUndefined();
+    expect(body.run.governanceEvents).toContainEqual(expect.objectContaining({
+      taskId: T4_IDENTITY, category: "ALLOW", resourceId: RESOURCE_PASSPORT,
+      verdict: "ALLOW",
+    }));
   });
 
   it("represents real parent-child grant relationships and runtime child kind", () => {
@@ -98,6 +104,7 @@ describe("Stage 7C stable governed-run evidence contract", () => {
 
   it("shows the bounded IdentityVerification Return Gate lifecycle", () => {
     const artifact = body.run.artifacts.find((item) => item.type === TYPE_IDENTITY_VERIFICATION)!;
+    expect(artifact.taskId).toBe(T4_IDENTITY);
     expect(artifact.lifecycle).toMatchObject({ created: true, published: true, recipients: [lifecycle.rootPrincipalId] });
     expect(artifact.boundedFields).toEqual({ identity_verified: "yes", booking_name_matched: "yes",
       travel_document_valid: "yes", destination_eligible: "yes" });

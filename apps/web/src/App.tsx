@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError, setAuthToken } from "./api";
 import type { Agent, AgentRun, Message, SystemInfo } from "./types";
+import { GovernanceInspector } from "./governance/GovernanceInspector";
 
 const starterPrompts = [
   "Create a small TypeScript CLI that prints a weather summary from sample JSON.",
@@ -49,6 +50,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [authRequired, setAuthRequired] = useState<boolean | null>(null);
   const [authInput, setAuthInput] = useState("");
+  const [governanceOpen, setGovernanceOpen] = useState(false);
   const messageEnd = useRef<HTMLDivElement>(null);
   const selectedIdRef = useRef<string | null>(null);
   const mountedRef = useRef(true);
@@ -307,7 +309,7 @@ export default function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className={"app-shell " + (governanceOpen ? "governance-open" : "governance-closed")}>
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark">A</div>
@@ -601,6 +603,8 @@ export default function App() {
           </div>
         )}
       </main>
+
+      <GovernanceInspector open={governanceOpen} onToggle={() => setGovernanceOpen((value) => !value)} />
 
       {showCreate && (
         <div className="modal-backdrop" onMouseDown={() => setShowCreate(false)}>

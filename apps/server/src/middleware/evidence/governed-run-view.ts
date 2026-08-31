@@ -113,7 +113,7 @@ export interface GovernedRunView {
     includedArtifactIds: string[]; withheld: Array<{ id: string; reason: string }>;
   }>;
   artifacts: Array<{
-    artifactId: string; type: string; ownerPrincipalId: string;
+    artifactId: string; type: string; ownerPrincipalId: string; taskId: string | null;
     lifecycle: { created: boolean; published: boolean; recipients: string[] };
     boundedFields: Record<string, unknown>;
   }>;
@@ -178,15 +178,31 @@ export function buildGovernedRunView(store: JsonStore, runId: string, descriptor
     : { value: null, quality: "UNAVAILABLE", source: "NONE" };
   const routing = events.filter((event) => event.kind === "routing_decision");
   const invocations = events.filter((event) => event.kind === "invocation_started");
+  const delegatedGrantIds = new Set(
+    envelopes.filter((envelope) => envelope.parentGrantId !== undefined).map((envelope) => envelope.id),
+  );
+  const taskByInvocationGrant = new Map<string, string | null>();
+  for (const invocation of invocations) {
+    const payload = invocation.payload as { sourceGrantId: string; taskId: string };
+    if (!delegatedGrantIds.has(payload.sourceGrantId)) continue;
+    const existing = taskByInvocationGrant.get(payload.sourceGrantId);
+    taskByInvocationGrant.set(
+      payload.sourceGrantId,
+      existing === undefined || existing === payload.taskId ? payload.taskId : null,
+    );
+  }
   const safeEvents: SafeGovernanceEventView[] = events.map((event) => {
     const payload = event.payload as Record<string, unknown>;
+    const correlatedTaskId = typeof payload.taskId === "string"
+      ? payload.taskId
+      : taskByInvocationGrant.get(event.grantId) ?? undefined;
     const artifactId = typeof payload.artifactId === "string" ? payload.artifactId : undefined;
     const artifact = artifactId ? database.artifacts.find((item) => item.id === artifactId) : undefined;
     return {
       eventId: `${runId}:${event.seq}`, sequence: event.seq, timestamp: event.ts,
       category: category(event.kind, payload), kind: event.kind,
       principalId: event.principalId, grantId: event.grantId,
-      ...(typeof payload.taskId === "string" ? { taskId: payload.taskId } : {}),
+      ...(correlatedTaskId ? { taskId: correlatedTaskId } : {}),
       ...(typeof payload.decisionId === "string" ? { decisionId: payload.decisionId } : {}),
       ...(typeof payload.action === "string" ? { action: payload.action } : {}),
       ...(typeof payload.resourceId === "string" ? { resourceId: payload.resourceId } : {}),
@@ -298,6 +314,16 @@ export function buildGovernedRunView(store: JsonStore, runId: string, descriptor
     }),
     artifacts: visibleArtifacts.map((artifact) => ({
       artifactId: artifact.id, type: artifact.type, ownerPrincipalId: artifact.ownerPrincipalId,
+      taskId: (() => {
+        const artifactEvents = events.filter((event) =>
+          (event.kind === "artifact_created" || event.kind === "artifact_published")
+          && (event.payload as { artifactId: string }).artifactId === artifact.id);
+        const taskIds = new Set(artifactEvents.flatMap((event) => {
+          const taskId = taskByInvocationGrant.get(event.grantId);
+          return taskId ? [taskId] : [];
+        }));
+        return taskIds.size === 1 ? [...taskIds][0]! : null;
+      })(),
       lifecycle: { created: createdIds.has(artifact.id), published: publishedIds.has(artifact.id), recipients: [...artifact.recipients] },
       boundedFields: structuredClone(artifact.fields),
     })),
