@@ -28,7 +28,7 @@ import { randomUUID } from "node:crypto";
 import type { JsonStore } from "../../store.js";
 import type { GovernanceLedger } from "../evidence/ledger.js";
 import type { GovernanceEventPayloadMap } from "../evidence/types.js";
-import { ancestorPrincipalIds } from "../governance/artifacts.js";
+import { ancestorPrincipalIds, validatePublication } from "../governance/artifacts.js";
 import { resolveGrant } from "../governance/grant-resolver.js";
 import type { GovernanceState, Principal, ReasonCode } from "../governance/types.js";
 import { buildCandidates, type Candidate } from "./candidates.js";
@@ -601,6 +601,37 @@ export class ExecutionEngine {
         // boundary. When it IS delegated, the ContextBroker withholds it from
         // the parent, so publication is enforced by the boundary rather than
         // by a second rule here.
+        //
+        // That reasoning covers CONFIDENTIALITY only. Integrity is a separate
+        // question: a declared producedArtifactTypes contract must still hold,
+        // or a task could satisfy a typed dependency with arbitrary output
+        // simply by declining to publish. Validated inline against the
+        // registered schema, deliberately WITHOUT routing same-principal
+        // output through the cross-principal Return Gate.
+        const declaredType = node.producedArtifactTypes?.[item.id];
+        if (declaredType !== undefined) {
+          if (item.value === null || typeof item.value !== "object" || Array.isArray(item.value)) {
+            return {
+              ok: false,
+              error: `own task output for ${item.id} is not a ${declaredType} field record`,
+            };
+          }
+          const schema = database.artifactSchemas.find(
+            (candidate) => candidate.artifactType === declaredType,
+          );
+          const validation = validatePublication(
+            schema,
+            declaredType,
+            item.value as Record<string, unknown>,
+          );
+          if (!validation.ok) {
+            return {
+              ok: false,
+              error:
+                `own task output for ${item.id} violates ${declaredType}: ${validation.detail}`,
+            };
+          }
+        }
         artifacts.push({
           id: item.id,
           origin: "own_task_output",
