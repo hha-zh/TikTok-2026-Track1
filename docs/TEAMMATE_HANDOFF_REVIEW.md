@@ -406,9 +406,12 @@ bounded typed result. Those workloads are not claimed as implemented.
 | #3 | 7/7 and budget PASS, overall FAILED | 115,801/150,000, but no observed child passport read. A valid-looking artifact was insufficient; oracle failed closed. |
 | #4 | PROVEN | 7 runs, no retries, mandatory child crossing, bounded artifact, 116,174/150,000, revocation, isolation, and all oracles/claims passed. |
 
-The deterministic 12,000-token benchmark and live 150,000-token allowance have
-different purposes and pressure. They are not comparable demonstrations of the
-same token economics.
+The deterministic 12,000-token benchmark and the **operator-configured live
+integration allowance** of 150,000 tokens have different purposes and pressure.
+They are not comparable demonstrations of the same token economics. The 150,000
+figure is an allowance an operator set for one external integration run; it is
+**not** a frozen deterministic budget benchmark, and the live run's budget
+claims are graded against it rather than against the frozen 12,000 cap.
 
 Stage 7D.3 removed the live proof's two literal oracle successes:
 `noRawChildHandoff` now requires parent-view raw-output absence plus successful
@@ -416,6 +419,26 @@ bounded Return Gate evidence; `earlyRouterTopology` now requires persisted T1
 and T2 `DELEGATE_SPECIALIST + PARALLEL` routing evidence. The offline
 revalidation reports PASS for both, PASS for the reconstructed oracle, zero
 provider calls, and an unchanged Attempt #4 SHA-256.
+
+> **Stage 7D.5 correction — this paragraph overstates what Attempt #4 proves.**
+> The wording above reads as though only two weak oracle values existed and the
+> remainder is real evidence. It is not. Three further keys in the live proof
+> were existence-only checks reusing the frozen oracle's names:
+> `adaptive.realCandidateSnapshot`, `adaptive.freshStateChangesWho` and
+> `lifecycle.evidenceCorrelated`. `evidenceCorrelated` was strictly vacuous —
+> `run_outcome` is written for every terminal outcome, FAILED included.
+>
+> Those predicates are now strengthened for future authorized runs, but Attempt
+> #4 **cannot be retroactively upgraded**: the report persists `topology` but
+> not `candidates`, `delegationValue`, `delegationThreshold`,
+> `budget.runPressure`, or `decisionId`.
+>
+> The "reconstructed oracle" PASS is also weaker than it sounds: the offline
+> revalidation reconstructs two fields and ANDs the remaining booleans straight
+> out of the report it is validating.
+>
+> The authoritative qualified wording is in
+> `docs/STAGE_7D5_BACKEND_SIGNOFF.md` §8. The historical JSON was not edited.
 
 ## 11. Evidence Quality
 
