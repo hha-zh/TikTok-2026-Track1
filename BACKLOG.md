@@ -10,7 +10,9 @@ One line per finding. Decided at checkpoints, not implemented mid-stream.
 ## Design notes to settle at a checkpoint
 
 - Artifact types share the `resources` namespace: a child needs `SecurityFinding` in `exercisable.resources` to publish. Design §3 lists artifact types as a Set dimension but `Envelope` has no separate field, so they ride in `resources`. Works, but a judge may ask.
-- `Envelope.maxToolCalls` is inert — nothing tracks `toolCallsUsed` and the budget check is tokens-only. Either enforce it or drop the field.
+- `Envelope.maxToolCalls` is retained authority metadata but is **NOT ENFORCED**:
+  there is no `toolCallsUsed` projection. Trusted-tool calls are authorization
+  gated, but this build makes no tool-call-budget claim.
 - `authorize` accepts `resource` as `string | null | undefined`; the frozen contract says `string | null`. Harmless, worth aligning.
 - Trusted tools are three hardcoded stubs in `gates.ts`, not a registry.
 
@@ -38,7 +40,9 @@ One line per finding. Decided at checkpoints, not implemented mid-stream.
 - Artifact visibility is directional: own task output flows to its producer and that producer's descendants. Parent->child is briefing, child->parent needs the Return Gate, sibling->sibling never. This surfaced when a delegated planner could not see the workspace_summary its own parent produced.
 - `optional_reviewer` is dropped by budget pressure, not by policy. If a scenario needs it dropped for another reason, add the reason rather than lowering its utility hint.
 - Routing constants are still the initial declared heuristics. Tuning should come from a scenario matrix over this graph, not intuition; `RouterPolicy` and `EnginePolicy` are injectable so no routing change is needed.
-- External container/Codex/Ark probe: NOT RUN. Docker daemon not running, `volc-agent-runtime:local` absent, no `.env` in this repo. The live AgentService integration is proven with an injected AgentRunner; that is a substitute for the MODEL only, never for the governance path. Report the two layers separately.
+- External Container/Codex/Ark execution is now proven by the isolated WSL
+  probe. The injected-runner suite remains the deterministic CI layer; the two
+  evidence layers must still be reported separately.
 - `GovernedProbeRunner` encodes the task id in the prompt (`[bouncer-task:<id>]`) so the injected runner knows what to do. A real Codex agent would be told the same thing in prose; if the prompt format changes, that runner needs updating.
 
 ## Phase 6 findings
@@ -51,7 +55,9 @@ One line per finding. Decided at checkpoints, not implemented mid-stream.
 
 - `maxChildren` is enforced by `authorize()` on the AUTHORITY axis, not by the budget view. Exhausting child slots yields `MAX_CHILDREN_EXCEEDED`, never a budget denial. The explanatory `ConstraintAxis` calls it `EXECUTION_HORIZON` — that names the dimension, it does not move the enforcement. AB-04 asserts the truth, not the tidier story.
 - `pressureWeight` went 2 → 6 when the remaining-budget divisor was removed from `delegationValue`. Removing the divisor changed the value scale, so the old weight no longer flipped AB-02 to REUSE. This is a rescale, not a tuning result; nothing was fitted to data.
-- `candidate.feasible` is retained as a documented alias of `routableNow`. Prefer the explicit trio (`hardEligible` / `planningFit` / `routableNow`) in new code — the single boolean is what blurred the two questions in the first place.
+- `candidate.feasible` was removed. Eligibility is expressed only through
+  `hardEligible` / `planningFit` / `routableNow`.
 - One manual usage write remains, in `authority-budget.test.ts`: the grant-vs-run divergence fixture (grant nearly spent, run barely touched). The workload cannot reach that state through the ledger because the parent grant cap equals the run cap, so it would need a child grant absorbing run tokens. It is a unit test of the budget VIEW, and it makes no feedback-loop claim. Everything in `feedback-loop.test.ts` is execution-driven.
 - `TopologyPolicyMode` governs the WHO axis only. HOW (DIRECT/SERIAL/PARALLEL) is still decided by its own inputs, so `ALWAYS_DELEGATE` can still serialise when headroom is thin — visible in the `delegation_capacity_pressure` row of the matrix.
-- External Container/Codex/Ark probe: NOT RUN. Docker is not reachable from this shell (`docker` absent from PATH, and the binary at /usr/local/bin/docker does not resolve), the runtime image is absent, and no ARK credentials are set. The preflight refuses rather than degrading to a simulated pass.
+- The final external probe used isolated state, the existing runtime image and
+  configured Ark endpoint. It passed without changing the normal Agent store.

@@ -5,7 +5,7 @@ Update at the end of every item, in the same commit.
 
 ## Where we are
 
-- Branch `feature/runtime-governor`, pushed and in sync with origin.
+- Phase 6D work is on `fix/backend-freeze`.
 - `npm run check` green — **311 tests, 28 files**, typecheck and both builds pass.
   The launcher flake is fixed (verified 8/8 plus three full runs).
 - Hard Governance is complete and reachable from the real production path. Per
@@ -110,7 +110,7 @@ whether something is permitted, stop and report rather than adding it.
 | decisionId correlation (decision -> invocation -> outcome) | done |
 | TopologyPolicyMode for declared static baselines | done |
 | Ledger feedback loop proven without manual usage writes | done |
-| External container probe script | written, NOT RUN — environment unavailable |
+| External container probe | **PROVEN** on WSL + Docker: real Ark, 200 allowed reads, exact 403 denial, real narrower child, bounded Return Gate |
 | Run Inspector / README | **not started — stopped for review** |
 
 ### Two envelopes, deliberately separate
@@ -177,11 +177,17 @@ matrix in `reports/PHASE6.md` shows the three policies separating.
 
 ## Backend freeze criteria
 
+`GovernanceLedger` is the sole append-only runtime evidence/event trail and the
+sole event-driven update path for event-derived `RunState` and `GrantState`
+projections. `JsonStore` is not fully event-sourced: it also persists
+authoritative principals, grants, resources, agents, artifact schemas and
+artifacts, plus initial runtime objects.
+
 | criterion | state |
 | --- | --- |
 | `authorize()` is the only hard verdict primitive | held |
 | No second authorization system in `router.ts` / `candidates.ts` | held |
-| One `GovernanceLedger`, single append path, projections in the same mutation | held |
+| One `GovernanceLedger`, sole append-only runtime evidence trail and event-driven projection update path | held |
 | No raw prompts, protected contents, child output, tokens or credentials persisted | held |
 | Return Gate mandatory for every child->parent handoff | held |
 | Dispatch-time revalidation survives planning-time approval | held |
@@ -190,9 +196,8 @@ matrix in `reports/PHASE6.md` shows the three policies separating.
 | `npm run check` green three consecutive runs | held |
 | Complete mediation under `local-process` | **NOT held — container mode only** |
 | Per-model-call Model/Budget mediation | **NOT held — dispatch granularity (HG-14)** |
-| External Container/Codex/Ark probe executed | **NOT RUN — environment unavailable** |
+| External Container/Codex/Ark probe executed | **PROVEN — clean isolated probe passed; normal application state unchanged** |
 
 ## Next action
 
-Frontend / Run Inspector. Backend is frozen at the criteria above; reopen it
-only for a concrete verification bug, not for polish.
+Backend core is ready to freeze. Frontend / Run Inspector remains a separate phase.

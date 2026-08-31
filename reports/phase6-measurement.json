@@ -32,7 +32,7 @@
   },
   "authorizeOverhead": {
     "samples": 200,
-    "medianMicros": 0.708,
+    "medianMicros": 1.078,
     "provenance": "OBSERVED"
   },
   "benignSuite": {
@@ -191,7 +191,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0,
-        "harnessWallClockMs": 37.11
+        "harnessWallClockMs": 85.41
       }
     },
     {
@@ -224,7 +224,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 34.23
+        "harnessWallClockMs": 65
       }
     },
     {
@@ -257,7 +257,7 @@
       "synthetic": {
         "fixtureTokensUsed": 11900,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 30.83
+        "harnessWallClockMs": 53.14
       }
     },
     {
@@ -290,7 +290,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 54.14
+        "harnessWallClockMs": 53.49
       }
     },
     {
@@ -323,7 +323,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 31.52
+        "harnessWallClockMs": 61.39
       }
     },
     {
@@ -356,7 +356,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 30.79
+        "harnessWallClockMs": 57.83
       }
     },
     {
@@ -389,7 +389,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0,
-        "harnessWallClockMs": 46.16
+        "harnessWallClockMs": 82.85
       }
     },
     {
@@ -422,7 +422,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 40.29
+        "harnessWallClockMs": 66.27
       }
     },
     {
@@ -455,7 +455,7 @@
       "synthetic": {
         "fixtureTokensUsed": 11900,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 35.96
+        "harnessWallClockMs": 82.45
       }
     },
     {
@@ -488,7 +488,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 43.19
+        "harnessWallClockMs": 72.1
       }
     },
     {
@@ -520,7 +520,7 @@
       "synthetic": {
         "fixtureTokensUsed": 1100,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 42.68
+        "harnessWallClockMs": 56.62
       }
     },
     {
@@ -553,7 +553,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 45.65
+        "harnessWallClockMs": 58.51
       }
     },
     {
@@ -586,7 +586,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0,
-        "harnessWallClockMs": 28.32
+        "harnessWallClockMs": 37.08
       }
     },
     {
@@ -619,7 +619,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 44.74
+        "harnessWallClockMs": 61.79
       }
     },
     {
@@ -652,7 +652,7 @@
       "synthetic": {
         "fixtureTokensUsed": 11900,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 29.93
+        "harnessWallClockMs": 32.76
       }
     },
     {
@@ -685,7 +685,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 43.13
+        "harnessWallClockMs": 56.08
       }
     },
     {
@@ -717,7 +717,7 @@
       "synthetic": {
         "fixtureTokensUsed": 1100,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 35.07
+        "harnessWallClockMs": 42.18
       }
     },
     {
@@ -750,7 +750,7 @@
       "synthetic": {
         "fixtureTokensUsed": 2600,
         "declaredPlanningUtilityGain": 0.45,
-        "harnessWallClockMs": 51.03
+        "harnessWallClockMs": 54.84
       }
     }
   ]

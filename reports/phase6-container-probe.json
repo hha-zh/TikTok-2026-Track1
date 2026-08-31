@@ -1,0 +1,56 @@
+{
+  "layer": "external Container / Codex / Ark",
+  "runId": "4343db87-823d-4666-80b3-dfe09d27f056",
+  "callbackOrigin": "http://host.docker.internal:3000",
+  "runtimeProvider": "container",
+  "sandboxMode": "workspace-write",
+  "runtimeImage": "volc-agent-runtime:local",
+  "findings": {
+    "resourceAllowed": 2,
+    "resourceDenied": 1,
+    "allowedResources": [
+      {
+        "resourceId": "app/metrics",
+        "httpStatus": 200
+      },
+      {
+        "resourceId": "app/checkout.log",
+        "httpStatus": 200
+      }
+    ],
+    "deniedResources": [
+      "payments/private_incident.json"
+    ],
+    "deniedResourceDecisions": [
+      {
+        "resourceId": "payments/private_incident.json",
+        "reason": "RESOURCE_NOT_GRANTED",
+        "httpStatus": 403
+      }
+    ],
+    "scanRunStatus": "completed",
+    "childGrantNarrower": true,
+    "childTokenIsNotParentToken": true,
+    "publishedByChild": 1,
+    "publishedTypes": [
+      "UIPlan"
+    ],
+    "publishedToParent": true,
+    "publishedFieldCounts": [
+      4
+    ],
+    "parentReturnGateReadStatus": 200,
+    "parentReceivedBoundedArtifact": true,
+    "childRunStatus": "completed",
+    "probeStateIsolated": true,
+    "normalApplicationStateUnchanged": true
+  },
+  "claims": {
+    "backend denied the forbidden resource": true,
+    "run remained understandable and recovered": true,
+    "a real child agent ran with a narrower grant": true,
+    "bounded result returned through the Return Gate": true,
+    "probe state was isolated from normal application data": true
+  },
+  "status": "PROVEN"
+}

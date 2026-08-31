@@ -62,7 +62,7 @@ container startup cost are UNAVAILABLE until the external probe runs.
 
 ## Verification targets
 
-- `authorize()` median overhead: **0.708 µs** over 200 calls (OBSERVED).
+- `authorize()` median overhead: **1.078 µs** over 200 calls (OBSERVED).
 - Benign suite: **6 ordinary cases, 0 false denies** (OBSERVED).
 
 ## Known limitation
