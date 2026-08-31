@@ -2,10 +2,13 @@ import type { GovernedRunDescriptor } from "../../middleware/evidence/governed-r
 import type { TravelOracle } from "./oracle.js";
 import { buildTravelGraph } from "./graph.js";
 
-export function travelRunDescriptor(oracle: TravelOracle): GovernedRunDescriptor {
+export const TRAVEL_WORKLOAD_ID = "travel-disruption-v1";
+export const TRAVEL_DESCRIPTOR_VERSION = "1";
+
+export function travelRunDescriptor(oracle?: TravelOracle): GovernedRunDescriptor {
   return {
     workload: {
-      id: "travel-disruption-v1",
+      id: TRAVEL_WORKLOAD_ID,
       scenario: "cancelled-sin-to-tokyo-recovery",
       graph: buildTravelGraph(),
     },
@@ -16,11 +19,13 @@ export function travelRunDescriptor(oracle: TravelOracle): GovernedRunDescriptor
         spendingConstraint: { currency: "SGD", maximumAdditionalSpend: 700 },
         approvalPolicy: { currency: "SGD", threshold: 300 },
       },
-      oracle: oracle.domain,
+      ...(oracle ? { oracle: oracle.domain } : {}),
     },
-    governanceOracle: oracle.governance,
-    adaptiveOracle: oracle.adaptive,
-    lifecycleOracle: oracle.lifecycle,
+    ...(oracle ? {
+      governanceOracle: oracle.governance,
+      adaptiveOracle: oracle.adaptive,
+      lifecycleOracle: oracle.lifecycle,
+    } : {}),
     executionProvenance: "DETERMINISTIC_SYNTHETIC_FIXTURE",
   };
 }

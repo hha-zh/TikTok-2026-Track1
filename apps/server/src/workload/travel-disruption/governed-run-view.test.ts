@@ -46,7 +46,11 @@ const decision = (taskId: string) => body.run.routingDecisions.find((item) => it
 describe("Stage 7C stable governed-run evidence contract", () => {
   it("correlates the requested Travel run and safe workload identity", () => {
     expect(body.run.run.runId).toBe(lifecycle.runId);
-    expect(body.run.run.workload).toEqual({ id: "travel-disruption-v1", scenario: "cancelled-sin-to-tokyo-recovery" });
+    expect(body.run.run.workload).toEqual({
+      id: "travel-disruption-v1",
+      scenario: "cancelled-sin-to-tokyo-recovery",
+      quality: "DECLARED",
+    });
   });
 
   it("exposes the complete generic task lifecycle and dependencies", () => {
@@ -126,6 +130,26 @@ describe("Stage 7C stable governed-run evidence contract", () => {
     expect(usageBefore).toBe(7_600);
     expect(later.who).toBe("REUSE_CURRENT");
     expect(later.horizon.runTokensRemaining).toBe(4_400);
+    expect(body.run.usageFeedback.laterDecisionsReferenceProjectedState)
+      .toEqual({ value: true, quality: "DERIVED" });
+  });
+
+  it("does not self-assert projected-state references when the recorded budget disagrees", async () => {
+    const altered = await runTravelLifecycle("travel-view-altered-budget");
+    try {
+      await altered.store.mutate((database) => {
+        const later = database.governanceEvents.find((event) => event.kind === "routing_decision"
+          && (event.payload as { taskId?: string }).taskId === T5_VALIDATE);
+        if (!later || later.kind !== "routing_decision") throw new Error("later decision missing");
+        later.payload.budget.runTokensRemaining += 1;
+      });
+      const rebuilt = (await import("../../middleware/evidence/governed-run-view.js"))
+        .buildGovernedRunView(altered.store, altered.runId, travelRunDescriptor(altered.oracle));
+      expect(rebuilt?.usageFeedback.laterDecisionsReferenceProjectedState)
+        .toEqual({ value: false, quality: "DERIVED" });
+    } finally {
+      await altered.cleanup();
+    }
   });
 
   it("labels deterministic fixture provenance truthfully", () => {

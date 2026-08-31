@@ -11,6 +11,7 @@ import {
   TYPE_ACCOMMODATION_OPTIONS, TYPE_IDENTITY_VERIFICATION, TYPE_TRANSPORT_OPTIONS,
   TYPE_VALIDATED_RECOVERY,
 } from "./artifacts.js";
+import { TRAVEL_DESCRIPTOR_VERSION, TRAVEL_WORKLOAD_ID } from "./evidence.js";
 
 export const TRAVEL_OWNER = "travel-user";
 
@@ -35,7 +36,14 @@ export async function seedTravelFixtures(store: JsonStore): Promise<void> {
 }
 
 export async function startTravelRun(store: JsonStore, ledger: GovernanceLedger, runId = "travel-run-1") {
-  const governed = await startGovernedRun(store, ledger, { runId, ownerId: TRAVEL_OWNER });
+  const governed = await startGovernedRun(store, ledger, {
+    runId,
+    ownerId: TRAVEL_OWNER,
+    workloadDescriptor: {
+      workloadId: TRAVEL_WORKLOAD_ID,
+      descriptorVersion: TRAVEL_DESCRIPTOR_VERSION,
+    },
+  });
   await store.mutate((database) => {
     const envelope = database.envelopes.find((item) => item.id === governed.envelope.id);
     const run = database.runStates.find((item) => item.runId === runId);

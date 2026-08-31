@@ -32,6 +32,11 @@ export interface RunState {
   // Independent shared run cap; Envelope.maxTokens remains the per-grant cap.
   maxTokens: number;
   tokensUsed: number;
+  /** Durable, domain-neutral key used by application composition to resolve safe UI metadata. */
+  workloadDescriptor?: {
+    workloadId: string;
+    descriptorVersion: string;
+  };
 }
 
 export interface GrantState {

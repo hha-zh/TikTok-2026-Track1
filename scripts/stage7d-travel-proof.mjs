@@ -100,7 +100,7 @@ async function main() {
   const normalBefore = await readFile(normalStorePath).catch(() => null);
   const proofState = await createProbeState(path.join(repoRoot, ".local", "travel-proofs"));
   cleanup = async () => { if (process.env.KEEP_PROBE_STATE !== "1") await cleanupProbeState(proofState); };
-  const config = loadConfig({ ...process.env, NODE_ENV: "production", HOST: "127.0.0.1", PORT: String(port),
+  const config = loadConfig({ ...process.env, NODE_ENV: "production", HOST: "0.0.0.0", PORT: String(port),
     RUNTIME_PROVIDER: "container", CODEX_SANDBOX_MODE: process.env.CODEX_SANDBOX_MODE ?? "danger-full-access",
     APP_DATA_DIR: proofState.dataDirectory, AGENT_WORKSPACE_ROOT: proofState.workspaceRoot,
     CODEX_HOME: proofState.codexHome, RUNTIME_INSTANCE_ID: `stage7d-${proofId.slice(0, 8)}` });

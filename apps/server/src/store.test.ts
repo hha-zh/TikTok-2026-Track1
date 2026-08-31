@@ -144,6 +144,10 @@ describe("JsonStore", () => {
         runId: "run-1",
         maxTokens: 1_200,
         tokensUsed: 0,
+        workloadDescriptor: {
+          workloadId: "example-workload",
+          descriptorVersion: "1",
+        },
       });
     });
 
@@ -151,6 +155,10 @@ describe("JsonStore", () => {
     await reloaded.initialize();
     expect(reloaded.snapshot().envelopes[0]?.maxTokens).toBe(800);
     expect(reloaded.snapshot().runStates[0]?.maxTokens).toBe(1_200);
+    expect(reloaded.snapshot().runStates[0]?.workloadDescriptor).toEqual({
+      workloadId: "example-workload",
+      descriptorVersion: "1",
+    });
   });
 
   it("does not publish a mutation in memory when persistence fails", async () => {

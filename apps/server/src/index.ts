@@ -8,6 +8,7 @@ import { seedGovernanceFixtures } from "./middleware/governance/fixtures.js";
 import { createRunner } from "./runner-factory.js";
 import { JsonStore } from "./store.js";
 import { WorkspaceManager } from "./workspace.js";
+import { createWorkloadDescriptorResolver } from "./workload/descriptor-registry.js";
 
 const config = loadConfig();
 await writeCodexConfig(config);
@@ -24,7 +25,12 @@ await service.initialize();
 // required before any identity can resolve or any gate can be reached.
 await seedGovernanceFixtures(store);
 
-const app = await createApp(config, service, { store, runTokens, ledger });
+const app = await createApp(config, service, {
+  store,
+  runTokens,
+  ledger,
+  governedRunDescriptor: createWorkloadDescriptorResolver(store),
+});
 
 const shutdown = async (signal: string) => {
   app.log.info({ signal }, "Shutting down");

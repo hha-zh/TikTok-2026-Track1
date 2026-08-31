@@ -283,6 +283,11 @@ export interface GovernedRunOptions {
   ttlMs?: number;
   now?: Date;
   id?: () => string;
+  /** Domain-neutral lookup key; interpretation belongs to application composition. */
+  workloadDescriptor?: {
+    workloadId: string;
+    descriptorVersion: string;
+  };
   /**
    * Extra DELEGATABLE capabilities contributed by a trusted workload
    * bootstrap - typically the bounded artifact types that workload's children
@@ -348,7 +353,14 @@ export async function startGovernedRun(
       ? {}
       : { expiresAt: new Date(now.getTime() + options.ttlMs).toISOString() }),
   };
-  const runState: RunState = { runId, maxTokens: RUN_CAP_TOKENS, tokensUsed: 0 };
+  const runState: RunState = {
+    runId,
+    maxTokens: RUN_CAP_TOKENS,
+    tokensUsed: 0,
+    ...(options.workloadDescriptor
+      ? { workloadDescriptor: structuredClone(options.workloadDescriptor) }
+      : {}),
+  };
 
   await store.mutate((database) => {
     database.principals.push(principal);

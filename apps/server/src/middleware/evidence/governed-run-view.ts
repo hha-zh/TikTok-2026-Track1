@@ -51,7 +51,7 @@ export interface GovernedRunView {
   contractVersion: "1";
   run: {
     runId: string;
-    workload: { id: string; scenario: string } | null;
+    workload: { id: string; scenario: string; quality: "DECLARED" } | null;
     status: string;
     createdAt: string | null;
     startedAt: string | null;
@@ -64,6 +64,7 @@ export interface GovernedRunView {
     taskId: string;
     /** DERIVED: computed from ordered task lifecycle events. */
     status: string;
+    statusQuality: "DERIVED";
     label: QualifiedEvidence<string>;
     required: QualifiedEvidence<boolean>;
     dependencies: QualifiedEvidence<{ tasks: string[]; artifacts: string[] }>;
@@ -121,8 +122,8 @@ export interface GovernedRunView {
     provenance: { value: string | null; quality: EvidenceQuality };
     deltas: Array<{ sequence: number; principalId: string; grantId: string; totalTokens: number }>;
     projectedRunTokensUsed: number;
-    /** DERIVED from event ordering: was any routing decision taken after usage
-     *  had already been projected into run state? Previously a literal `true`. */
+    /** DERIVED from event ordering and agreement between every post-usage
+     *  decision budget snapshot and cumulative prior recorded usage. */
     laterDecisionsReferenceProjectedState: { value: boolean; quality: "DERIVED" };
   };
   outcome: {
@@ -210,10 +211,27 @@ export function buildGovernedRunView(store: JsonStore, runId: string, descriptor
   const firstTs = events[0]?.ts ?? null;
   const lastTs = outcomeEvent?.ts ?? null;
   const usage = events.filter((event) => event.kind === "tokens_consumed");
+  const decisionsAfterUsage = routing.filter((decision) =>
+    usage.some((event) => event.seq < decision.seq));
+  const laterDecisionsReferenceProjectedState = decisionsAfterUsage.length > 0
+    && decisionsAfterUsage.every((decision) => {
+    const priorUsage = usage.filter((event) => event.seq < decision.seq);
+    const projectedTokensUsed = priorUsage.reduce(
+      (sum, event) => sum + (event.payload as { totalTokens: number }).totalTokens,
+      0,
+    );
+    const payload = decision.payload as { budget?: { runTokensRemaining?: number } };
+    return payload.budget?.runTokensRemaining
+      === Math.max(0, runState.maxTokens - projectedTokensUsed);
+    });
   return {
     contractVersion: "1",
     run: {
-      runId, workload: descriptor ? { id: descriptor.workload.id, scenario: descriptor.workload.scenario } : null,
+      runId, workload: descriptor ? {
+        id: descriptor.workload.id,
+        scenario: descriptor.workload.scenario,
+        quality: "DECLARED",
+      } : null,
       status: outcomePayload?.outcome ?? "RUNNING", createdAt: rootEnvelope.createdAt,
       startedAt: firstTs, completedAt: lastTs,
       durationMs: firstTs && lastTs ? Math.max(0, Date.parse(lastTs) - Date.parse(firstTs)) : null,
@@ -222,6 +240,7 @@ export function buildGovernedRunView(store: JsonStore, runId: string, descriptor
     tasks: nodes.map((node) => ({
       taskId: node.id,
       status: completed.has(node.id) ? "COMPLETED" : failed.has(node.id) ? "FAILED" : skipped.has(node.id) ? "SKIPPED" : ready.has(node.id) ? "READY" : "PENDING",
+      statusQuality: "DERIVED",
       label: fromDescriptor(() => node.description),
       required: fromDescriptor(() => !node.optional),
       dependencies: fromDescriptor(() => ({ tasks: [...node.dependsOn], artifacts: [...node.requiredArtifacts] })),
@@ -289,9 +308,7 @@ export function buildGovernedRunView(store: JsonStore, runId: string, descriptor
         totalTokens: (event.payload as { totalTokens: number }).totalTokens })),
       projectedRunTokensUsed: runState.tokensUsed,
       laterDecisionsReferenceProjectedState: {
-        // Derived, not asserted: a routing decision recorded after usage was
-        // already projected into run state necessarily read that state.
-        value: usage.length > 0 && routing.some((event) => event.seq > usage[0]!.seq),
+        value: laterDecisionsReferenceProjectedState,
         quality: "DERIVED",
       },
     },
