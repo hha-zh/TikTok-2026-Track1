@@ -167,6 +167,8 @@ export async function createApp(
       if (
         pathname === "/api/runtime/identity" ||
         pathname === "/api/delegations" ||
+        pathname === "/api/artifacts" ||
+        pathname.startsWith("/api/artifacts/") ||
         pathname.startsWith("/api/resources/") ||
         pathname.startsWith("/api/tools/")
       ) return;
