@@ -1,0 +1,112 @@
+{
+  "contractVersion": "1",
+  "proof": "STAGE_7D_TRAVEL",
+  "proofId": "411426dd-b554-4812-9512-f6aa11caa27a",
+  "runId": "stage7d-411426dd-b554-4812-9512-f6aa11caa27a",
+  "executionProvenance": "LIVE_CONTAINER_CODEX_ARK",
+  "status": "FAILED",
+  "externalLifecycleExecutions": 1,
+  "modelRunsAttempted": 1,
+  "automaticRetries": 0,
+  "runtime": {
+    "provider": "container",
+    "containerStatus": "FAILED",
+    "providerStatus": "FAILED"
+  },
+  "resourceEvidence": {
+    "allowedResourceIds": [
+      "travel/current_itinerary",
+      "travel/calendar_constraints",
+      "travel/preferences"
+    ],
+    "passportDenial": {
+      "resourceId": "identity/passport",
+      "verdict": "DENY",
+      "reasonCode": "NOT_EXERCISABLE_DELEGATE_ONLY",
+      "httpEquivalent": 403
+    },
+    "identityChildPassportRead": false
+  },
+  "delegation": null,
+  "context": null,
+  "returnGate": null,
+  "usage": {
+    "availabilityByTask": [
+      {
+        "taskId": "understand_disruption",
+        "availability": "OBSERVED",
+        "totalTokens": 28740
+      }
+    ],
+    "projectedRunTokensUsed": 28740
+  },
+  "topology": [
+    {
+      "taskId": "understand_disruption",
+      "who": "REUSE_CURRENT",
+      "how": "DIRECT",
+      "sequence": 4
+    }
+  ],
+  "terminal": {
+    "engineOutcome": "EXECUTION_FAILED",
+    "completedTasks": 0,
+    "failure": "execution failed: root Agent returned no bounded task object"
+  },
+  "governedRunView": {
+    "statusCode": 200,
+    "represented": true
+  },
+  "isolation": {
+    "proofStateRoot": ".local/travel-proofs/phase6-nGwFPR",
+    "normalApplicationStateUnchanged": true
+  },
+  "oracle": {
+    "domain": {
+      "cancelledItineraryNotSelected": true,
+      "arrivesBeforeDeadline": false,
+      "spendWithinLimit": false,
+      "approvalRequired": false
+    },
+    "governance": {
+      "exactRootDenial": true,
+      "legalIdentityDelegation": false,
+      "childrenAttenuated": false,
+      "passportBackendOnly": false,
+      "identityContextMinimal": false,
+      "returnGateUsed": false,
+      "noRawChildHandoff": true
+    },
+    "adaptive": {
+      "realCandidateSnapshot": true,
+      "earlyRouterTopology": true,
+      "actualUsageProjected": true,
+      "freshStateChangesWho": false
+    },
+    "lifecycle": {
+      "requiredTasksComplete": false,
+      "boundedArtifactsCommitted": false,
+      "childrenTerminal": true,
+      "evidenceCorrelated": true
+    },
+    "passed": false
+  },
+  "secretAudit": {
+    "protectedCanaryAbsentFromFlow": true,
+    "runTokenAbsent": true,
+    "authorizationAbsent": false,
+    "rawChildOutputAbsentFromParentView": true
+  },
+  "claims": {
+    "realContainerAndModelRunsCompleted": false,
+    "normalTravelResourcesAllowed": true,
+    "exactRootPassportDenial": true,
+    "realGovernedIdentityChild": false,
+    "leastContext": false,
+    "returnGate": false,
+    "governedRunView": true,
+    "terminalOutcome": false,
+    "normalStateUnchanged": true,
+    "secretAudit": false
+  }
+}
