@@ -9,6 +9,8 @@ import { TravelDelegationPort, TravelFixtureExecutor } from "./adapter.js";
 import { seedTravelFixtures, startTravelRun, TRAVEL_OWNER } from "./fixtures.js";
 import { buildTravelGraph, TRAVEL_ROUTING_INPUTS } from "./graph.js";
 import { evaluateTravelOracle, type TravelOracle } from "./oracle.js";
+import { buildGovernedRunView, type GovernedRunView } from "../../middleware/evidence/governed-run-view.js";
+import { travelRunDescriptor } from "./evidence.js";
 
 export interface TravelLifecycleResult {
   engine: EngineResult;
@@ -21,6 +23,7 @@ export interface TravelLifecycleResult {
   revokedGrantIds: string[];
   checks: Record<string, boolean>;
   oracle: TravelOracle;
+  view: GovernedRunView;
   cleanup(): Promise<void>;
 }
 
@@ -56,12 +59,16 @@ export async function runTravelLifecycle(runId = "travel-run-1"): Promise<Travel
     engine: result, executor, delegation, store, runId,
     rootPrincipalId: governed.principal.id, rootGrantId: governed.envelope.id,
     revokedGrantIds, checks: {}, oracle: undefined as unknown as TravelOracle,
+    view: undefined as unknown as GovernedRunView,
     cleanup: () => rm(directory, { recursive: true, force: true }),
   } satisfies TravelLifecycleResult;
   lifecycle.oracle = evaluateTravelOracle(lifecycle);
   lifecycle.checks = Object.fromEntries(Object.entries(lifecycle.oracle)
     .filter(([key]) => key !== "passed")
     .flatMap(([, group]) => Object.entries(group as Record<string, boolean>)));
+  const view = buildGovernedRunView(store, runId, travelRunDescriptor(lifecycle.oracle));
+  if (!view) throw new Error("governed Travel run view unavailable");
+  lifecycle.view = view;
   return lifecycle;
 }
 

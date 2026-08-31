@@ -15,6 +15,10 @@ import { verifyIdentity } from "./middleware/governance/identity.js";
 import { RunTokenService } from "./middleware/governance/run-token.js";
 import type { GovernanceLedger } from "./middleware/evidence/ledger.js";
 import {
+  buildGovernedRunView,
+  type GovernedRunDescriptor,
+} from "./middleware/evidence/governed-run-view.js";
+import {
   invokeTrustedTool,
   readManagedResource,
 } from "./middleware/governance/gates.js";
@@ -33,6 +37,7 @@ import {
 
 interface GovernanceDependencies extends IdentityDependencies {
   ledger: GovernanceLedger;
+  governedRunDescriptor?: (runId: string) => GovernedRunDescriptor | undefined;
 }
 
 declare module "fastify" {
@@ -100,7 +105,7 @@ const childEnvelopeBody = z
 export async function createApp(
   config: AppConfig,
   service: AgentService,
-  identityDependencies?: IdentityDependencies & Partial<Pick<GovernanceDependencies, "ledger">>,
+  identityDependencies?: IdentityDependencies & Partial<Pick<GovernanceDependencies, "ledger" | "governedRunDescriptor">>,
 ): Promise<FastifyInstance> {
   const app = Fastify({
     logger: {
@@ -223,6 +228,33 @@ export async function createApp(
       runId: identity.runId,
       kind: identity.kind,
     };
+  });
+
+  app.get("/api/governance/runs/:id", async (request, reply) => {
+    const identity = request.governanceIdentity;
+    if (!identity || identity.kind !== "human") {
+      return reply.code(401).send({ error: "Human authentication required" });
+    }
+    if (!identityDependencies?.ledger) {
+      return reply.code(503).send({ error: "Governance unavailable" });
+    }
+    const parsed = z.object({ id: z.string().trim().min(1).max(200) }).safeParse(request.params);
+    if (!parsed.success) return reply.code(400).send({ error: "Malformed request" });
+    const database = identityDependencies.store.snapshot();
+    const root = database.envelopes.find((item) =>
+      item.runId === parsed.data.id && item.parentGrantId === undefined);
+    const principal = root
+      ? database.principals.find((item) => item.id === root.principalId)
+      : undefined;
+    if (!root || principal?.ownerId !== identity.principalId) {
+      return reply.code(404).send({ error: "Not found" });
+    }
+    const view = buildGovernedRunView(
+      identityDependencies.store,
+      parsed.data.id,
+      identityDependencies.governedRunDescriptor?.(parsed.data.id),
+    );
+    return view ? reply.send({ run: view }) : reply.code(404).send({ error: "Not found" });
   });
 
   app.get("/api/resources/*", async (request, reply) => {
