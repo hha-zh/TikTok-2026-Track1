@@ -4,15 +4,17 @@
  * This command is intentionally absent from deterministic validation scripts.
  */
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dist = (file) => path.join(repoRoot, "apps", "server", "dist", file);
-// Attempt #1 is immutable historical failure evidence. Every separately
-// authorized follow-up proof must write a distinct report.
-const reportPath = path.join(repoRoot, "reports", "stage7d-travel-runtime-proof-attempt-4.json");
+// Every Stage 7D report is immutable historical evidence. Every separately
+// authorized follow-up proof must write a DISTINCT report, so writeReport
+// refuses to overwrite an existing file rather than relying on discipline.
+const reportName = process.env.TRAVEL_PROOF_REPORT ?? "stage7d-travel-runtime-proof-attempt-4.json";
+const reportPath = path.join(repoRoot, "reports", reportName);
 const port = Number(process.env.TRAVEL_PROOF_PORT ?? 3000);
 const callbackOrigin = process.env.TRAVEL_PROOF_CALLBACK_ORIGIN ?? `http://host.docker.internal:${port}`;
 const liveRunTokenCap = Number(process.env.TRAVEL_PROOF_RUN_TOKEN_CAP ?? 120_000);
@@ -24,6 +26,14 @@ const sanitizedError = (error) => String(error instanceof Error ? error.message 
   .replace(/ARK_API_KEY\s*[:=]\s*\S+/gi, "ARK_API_KEY=[REDACTED]");
 
 async function writeReport(report) {
+  // Fail closed: an existing report is historical evidence that cannot be
+  // regenerated. Both the success path and the preflight-failure path reach
+  // here, so without this guard a run that never starts still destroys it.
+  const alreadyExists = await stat(reportPath).then(() => true, () => false);
+  if (alreadyExists) {
+    throw new Error(`refusing to overwrite existing proof report reports/${reportName}; `
+      + "set TRAVEL_PROOF_REPORT to a new filename for a separately authorized attempt");
+  }
   await mkdir(path.dirname(reportPath), { recursive: true });
   await writeFile(reportPath, JSON.stringify(report, null, 2) + "\n", { encoding: "utf8", mode: 0o600 });
 }
@@ -50,8 +60,11 @@ async function main() {
   }
   const preflightProblems = await preflight();
   if (preflightProblems.length) {
+    // Never let the NOT_RUN stub mask the preflight failure, and never let it
+    // overwrite a previous attempt's evidence.
     await writeReport({ contractVersion: "1", proof: "STAGE_7D_TRAVEL", status: "NOT_RUN",
-      externalLifecycleExecutions: 0, automaticRetries: 0, preflightProblems });
+      externalLifecycleExecutions: 0, automaticRetries: 0, preflightProblems })
+      .catch((error) => console.error("[travel-proof] " + sanitizedError(error)));
     throw new Error("real Travel preflight failed: " + preflightProblems.join("; "));
   }
 
@@ -70,13 +83,15 @@ async function main() {
   const { ExecutionEngine } = await import(dist("middleware/adaptive/execution-engine.js"));
   const { buildGovernedRunView } = await import(dist("middleware/evidence/governed-run-view.js"));
   const { seedTravelFixtures, startTravelRun, TRAVEL_OWNER } = await import(dist("workload/travel-disruption/fixtures.js"));
-  const { buildTravelGraph, A_FINAL, T4_IDENTITY, T5_VALIDATE } = await import(dist("workload/travel-disruption/graph.js"));
-  const { RESOURCE_PASSPORT, PASSPORT_LEAK_CANARY } = await import(dist("workload/travel-disruption/resources.js"));
-  const { TYPE_IDENTITY_VERIFICATION } = await import(dist("workload/travel-disruption/artifacts.js"));
+  const { buildTravelGraph, A_FINAL, T1_TRANSPORT, T4_IDENTITY, T5_VALIDATE } = await import(dist("workload/travel-disruption/graph.js"));
+  const { RESOURCE_PASSPORT, PASSPORT_LEAK_CANARY, TRAVEL_RESOURCES } = await import(dist("workload/travel-disruption/resources.js"));
+  const { TYPE_IDENTITY_VERIFICATION, TRAVEL_ARTIFACT_SCHEMAS } = await import(dist("workload/travel-disruption/artifacts.js"));
   const { createLiveTravelRuntime, LIVE_TRAVEL_PROVENANCE } = await import(dist("workload/travel-disruption/live-runtime.js"));
   const { travelRunDescriptor } = await import(dist("workload/travel-disruption/evidence.js"));
   const { deriveEarlyRouterTopology, deriveLiveProofStatus, deriveNoRawChildHandoff,
-    deriveOraclePassed } = await import(dist("workload/travel-disruption/live-proof-evidence.js"));
+    deriveOraclePassed, deriveRealCandidateSnapshot, deriveFreshStateChangesWho,
+    deriveEvidenceCorrelated, deriveParentVisibleArtifactsBounded
+  } = await import(dist("workload/travel-disruption/live-proof-evidence.js"));
 
   const proofId = randomUUID();
   const runId = `stage7d-${proofId}`;
@@ -181,17 +196,26 @@ async function main() {
     identityContextMinimal: JSON.stringify(identityContext?.payload.includedArtifactIds) === JSON.stringify(["travel_constraints", "route_plan"]),
     returnGateUsed: Boolean(identityArtifact?.published && parentReceivedBoundedArtifact),
   };
+  // Correlation/candidate evidence needed by the strengthened predicates below.
+  const decisionPayloads = events
+    .filter((event) => event.kind === "routing_decision")
+    .map((event) => event.payload);
+  const decisionFor = (taskId) => decisionPayloads.find((payload) => payload.taskId === taskId);
+  const invocationDecisionIds = new Set(events
+    .filter((event) => event.kind === "invocation_started")
+    .map((event) => event.payload.decisionId));
   const adaptiveEvidence = {
-    realCandidateSnapshot: events.some((event) => event.kind === "routing_decision"),
+    realCandidateSnapshot: deriveRealCandidateSnapshot(decisionPayloads),
     actualUsageProjected: snapshot.runStates.find((item) => item.runId === runId)?.tokensUsed ===
       live.usage.reduce((sum, item) => sum + (item.totalTokens ?? 0), 0),
-    freshStateChangesWho: events.some((event) => event.kind === "routing_decision" && event.payload.taskId === T5_VALIDATE),
+    freshStateChangesWho: deriveFreshStateChangesWho(
+      decisionFor(T1_TRANSPORT), decisionFor(T5_VALIDATE)),
   };
   const lifecycle = {
     requiredTasksComplete: result?.outcome === "COMPLETED" && result.progress.completed.size === 7,
     boundedArtifactsCommitted: Boolean(final),
     childrenTerminal: live.children.every((child) => snapshot.grantStates.find((state) => state.grantId === child.grantId)?.revoked),
-    evidenceCorrelated: events.some((event) => event.kind === "run_outcome"),
+    evidenceCorrelated: deriveEvidenceCorrelated(decisionPayloads, invocationDecisionIds),
   };
   // Build a fail-closed preview solely to inspect the parent-visible read model.
   // The final oracle is derived afterwards, so it cannot prove its own output-safety claim.
@@ -206,12 +230,26 @@ async function main() {
   const flowCollections = { agents: snapshot.agents, messages: snapshot.messages, runs: snapshot.runs,
     artifacts: snapshot.artifacts, events, view: previewView };
   const flowText = JSON.stringify(flowCollections);
+  // A second, structurally different protected value. booking_name_key is a
+  // legitimately delegated schema-bounded field, so validThrough is the field
+  // that can only appear if the passport body itself leaked into the flow.
+  const passportBody = TRAVEL_RESOURCES.find((item) => item.id === RESOURCE_PASSPORT)?.body ?? {};
+  const protectedPassportValues = [passportBody.validThrough].filter((value) =>
+    typeof value === "string" && value.length > 0);
+  // A realistic parent-visible boundary: every artifact the parent can see must
+  // expose only its registered field names, with bounded scalar values. Raw
+  // model prose admitted as an artifact field fails on the name or the length.
+  const allowedFieldsByType = new Map(TRAVEL_ARTIFACT_SCHEMAS
+    .map((item) => [item.artifactType, item.allowedFieldNames]));
+  const parentVisibleArtifactsBounded = deriveParentVisibleArtifactsBounded(
+    previewView?.artifacts, allowedFieldsByType);
   const secretAudit = {
     protectedCanaryAbsentFromFlow: !flowText.includes(PASSPORT_LEAK_CANARY),
-    protectedResourceLeakAbsent: !flowText.includes(PASSPORT_LEAK_CANARY),
+    protectedResourceLeakAbsent: protectedPassportValues.length > 0
+      && protectedPassportValues.every((value) => !flowText.includes(value)),
     runTokenAbsent: !flowText.includes(parentToken),
     authorizationCredentialAbsent: !/Bearer\s+[A-Za-z0-9._~-]{16,}/i.test(flowText),
-    rawChildOutputAbsentFromParentView: !JSON.stringify(previewView).includes("assistant"),
+    rawChildOutputAbsentFromParentView: parentVisibleArtifactsBounded,
   };
   const governance = { ...governanceEvidence,
     noRawChildHandoff: deriveNoRawChildHandoff(secretAudit.rawChildOutputAbsentFromParentView,

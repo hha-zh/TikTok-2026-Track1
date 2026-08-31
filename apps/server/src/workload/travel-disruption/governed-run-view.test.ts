@@ -52,7 +52,7 @@ describe("Stage 7C stable governed-run evidence contract", () => {
   it("exposes the complete generic task lifecycle and dependencies", () => {
     expect(body.run.tasks).toHaveLength(7);
     expect(body.run.tasks.every((task) => task.status === "COMPLETED")).toBe(true);
-    expect(body.run.tasks.find((task) => task.taskId === T4_IDENTITY)?.dependencies.artifacts)
+    expect(body.run.tasks.find((task) => task.taskId === T4_IDENTITY)?.dependencies.value?.artifacts)
       .toEqual(["travel_constraints", "route_plan"]);
   });
 
@@ -134,7 +134,7 @@ describe("Stage 7C stable governed-run evidence contract", () => {
   });
 
   it("keeps domain constraints structurally separate from runtime budget", () => {
-    expect(body.run.outcome.domain?.summary).toMatchObject({
+    expect(body.run.outcome.domain?.value?.summary).toMatchObject({
       spendingConstraint: { currency: "SGD", maximumAdditionalSpend: 700 },
       approvalPolicy: { currency: "SGD", threshold: 300 },
     });
@@ -142,10 +142,19 @@ describe("Stage 7C stable governed-run evidence contract", () => {
   });
 
   it("exposes domain, governance, adaptive, and lifecycle oracle results separately", () => {
-    expect(Object.values(body.run.outcome.domain!.oracle).every(Boolean)).toBe(true);
-    expect(Object.values(body.run.outcome.governanceOracle!).every(Boolean)).toBe(true);
-    expect(Object.values(body.run.outcome.adaptiveOracle!).every(Boolean)).toBe(true);
-    expect(Object.values(body.run.outcome.lifecycleOracle!).every(Boolean)).toBe(true);
+    expect(Object.values(body.run.outcome.domain!.value!.oracle).every(Boolean)).toBe(true);
+    expect(Object.values(body.run.outcome.governanceOracle!.value!).every(Boolean)).toBe(true);
+    expect(Object.values(body.run.outcome.adaptiveOracle!.value!).every(Boolean)).toBe(true);
+    expect(Object.values(body.run.outcome.lifecycleOracle!.value!).every(Boolean)).toBe(true);
+
+    // Stage 7D.4: the workload's verdict on itself must be distinguishable from
+    // ledger-derived runtime facts sitting in the same outcome object.
+    expect(body.run.outcome.runtime.quality).toBe("DERIVED");
+    expect(body.run.outcome.runtime.source).toBe("LEDGER");
+    for (const block of ["domain", "governanceOracle", "adaptiveOracle", "lifecycleOracle"] as const) {
+      expect(body.run.outcome[block]!.quality).toBe("DECLARED");
+      expect(body.run.outcome[block]!.source).toBe("WORKLOAD_DESCRIPTOR");
+    }
   });
 
   it("shows truthful explicit revocation for every delegated grant", () => {

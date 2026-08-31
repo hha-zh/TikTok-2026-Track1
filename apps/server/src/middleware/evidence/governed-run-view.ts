@@ -4,6 +4,21 @@ import type { JsonStore } from "../../store.js";
 
 export type EvidenceQuality = "OBSERVED" | "DECLARED" | "DERIVED" | "UNAVAILABLE";
 
+/**
+ * Any field the Ledger did not observe. `DECLARED` values are authored workload
+ * contract supplied by the caller's descriptor; they are never runtime truth.
+ * `UNAVAILABLE` means the backend has nothing to say — a UI must render it as
+ * unknown, never as a default. This exists because the descriptor-less
+ * production path previously synthesized task nodes from bare event taskIds and
+ * emitted invented `required` / `dependencies` / `producedArtifacts` defaults
+ * in the same unlabelled shape as ledger-derived fields.
+ */
+export interface QualifiedEvidence<T> {
+  value: T | null;
+  quality: EvidenceQuality;
+  source: "WORKLOAD_DESCRIPTOR" | "LEDGER" | "NONE";
+}
+
 export interface GovernedRunDescriptor {
   workload: { id: string; scenario: string; graph: TaskGraph };
   domain?: { summary: Record<string, unknown>; oracle?: Record<string, boolean> };
@@ -45,9 +60,14 @@ export interface GovernedRunView {
     root: { principalId: string; grantId: string; kind: "runtime_agent" };
   };
   tasks: Array<{
-    taskId: string; label: string; status: string; required: boolean;
-    dependencies: { tasks: string[]; artifacts: string[] };
-    producedArtifacts: Array<{ id: string; type: string | null }>;
+    /** OBSERVED: the taskId appeared in a ledger event for this run. */
+    taskId: string;
+    /** DERIVED: computed from ordered task lifecycle events. */
+    status: string;
+    label: QualifiedEvidence<string>;
+    required: QualifiedEvidence<boolean>;
+    dependencies: QualifiedEvidence<{ tasks: string[]; artifacts: string[] }>;
+    producedArtifacts: QualifiedEvidence<Array<{ id: string; type: string | null }>>;
     executionProvenance: { value: string | null; quality: EvidenceQuality };
   }>;
   routingDecisions: Array<{
@@ -101,14 +121,19 @@ export interface GovernedRunView {
     provenance: { value: string | null; quality: EvidenceQuality };
     deltas: Array<{ sequence: number; principalId: string; grantId: string; totalTokens: number }>;
     projectedRunTokensUsed: number;
-    laterDecisionsReferenceProjectedState: true;
+    /** DERIVED from event ordering: was any routing decision taken after usage
+     *  had already been projected into run state? Previously a literal `true`. */
+    laterDecisionsReferenceProjectedState: { value: boolean; quality: "DERIVED" };
   };
   outcome: {
-    runtime: { status: string; completedTasks: number; failedTasks: number };
-    domain: { summary: Record<string, unknown>; oracle: Record<string, boolean> } | null;
-    governanceOracle: Record<string, boolean> | null;
-    adaptiveOracle: Record<string, boolean> | null;
-    lifecycleOracle: Record<string, boolean> | null;
+    /** DERIVED from the run_outcome ledger event. */
+    runtime: { status: string; completedTasks: number; failedTasks: number; quality: "DERIVED"; source: "LEDGER" };
+    /** DECLARED by the workload. These are the run's verdict on ITSELF and are
+     *  not ledger evidence; a UI must not present them as observed facts. */
+    domain: QualifiedEvidence<{ summary: Record<string, unknown>; oracle: Record<string, boolean> }> | null;
+    governanceOracle: QualifiedEvidence<Record<string, boolean>> | null;
+    adaptiveOracle: QualifiedEvidence<Record<string, boolean>> | null;
+    lifecycleOracle: QualifiedEvidence<Record<string, boolean>> | null;
   };
 }
 
@@ -143,6 +168,13 @@ export function buildGovernedRunView(store: JsonStore, runId: string, descriptor
     id, description: id, resources: [], actions: [], dependsOn: [], requiredArtifacts: [], producedArtifacts: [], estimatedTokens: 0,
   }));
   const artifactType = (node: typeof nodes[number], id: string) => node.producedArtifactTypes?.[id] ?? null;
+  // Graph shape is authored workload contract, never observed runtime truth.
+  // Without a descriptor the backend has NOTHING to say about it, so it must
+  // say exactly that rather than emit a synthesized default.
+  const hasDescriptor = descriptor !== undefined;
+  const fromDescriptor = <T>(compute: () => T): QualifiedEvidence<T> => hasDescriptor
+    ? { value: compute(), quality: "DECLARED", source: "WORKLOAD_DESCRIPTOR" }
+    : { value: null, quality: "UNAVAILABLE", source: "NONE" };
   const routing = events.filter((event) => event.kind === "routing_decision");
   const invocations = events.filter((event) => event.kind === "invocation_started");
   const safeEvents: SafeGovernanceEventView[] = events.map((event) => {
@@ -188,11 +220,12 @@ export function buildGovernedRunView(store: JsonStore, runId: string, descriptor
       root: { principalId: rootPrincipal.id, grantId: rootEnvelope.id, kind: "runtime_agent" },
     },
     tasks: nodes.map((node) => ({
-      taskId: node.id, label: node.description,
+      taskId: node.id,
       status: completed.has(node.id) ? "COMPLETED" : failed.has(node.id) ? "FAILED" : skipped.has(node.id) ? "SKIPPED" : ready.has(node.id) ? "READY" : "PENDING",
-      required: !node.optional,
-      dependencies: { tasks: [...node.dependsOn], artifacts: [...node.requiredArtifacts] },
-      producedArtifacts: node.producedArtifacts.map((id) => ({ id, type: artifactType(node, id) })),
+      label: fromDescriptor(() => node.description),
+      required: fromDescriptor(() => !node.optional),
+      dependencies: fromDescriptor(() => ({ tasks: [...node.dependsOn], artifacts: [...node.requiredArtifacts] })),
+      producedArtifacts: fromDescriptor(() => node.producedArtifacts.map((id) => ({ id, type: artifactType(node, id) }))),
       executionProvenance: descriptor?.executionProvenance
         ? { value: descriptor.executionProvenance, quality: "DECLARED" }
         : { value: null, quality: "UNAVAILABLE" },
@@ -254,14 +287,27 @@ export function buildGovernedRunView(store: JsonStore, runId: string, descriptor
       provenance: descriptor?.executionProvenance ? { value: descriptor.executionProvenance, quality: "DECLARED" } : { value: null, quality: "UNAVAILABLE" },
       deltas: usage.map((event) => ({ sequence: event.seq, principalId: event.principalId, grantId: event.grantId,
         totalTokens: (event.payload as { totalTokens: number }).totalTokens })),
-      projectedRunTokensUsed: runState.tokensUsed, laterDecisionsReferenceProjectedState: true,
+      projectedRunTokensUsed: runState.tokensUsed,
+      laterDecisionsReferenceProjectedState: {
+        // Derived, not asserted: a routing decision recorded after usage was
+        // already projected into run state necessarily read that state.
+        value: usage.length > 0 && routing.some((event) => event.seq > usage[0]!.seq),
+        quality: "DERIVED",
+      },
     },
     outcome: {
-      runtime: { status: outcomePayload?.outcome ?? "RUNNING", completedTasks: outcomePayload?.completed ?? completed.size, failedTasks: outcomePayload?.failed ?? failed.size },
-      domain: descriptor?.domain ? { summary: structuredClone(descriptor.domain.summary), oracle: structuredClone(descriptor.domain.oracle ?? {}) } : null,
-      governanceOracle: descriptor?.governanceOracle ? structuredClone(descriptor.governanceOracle) : null,
-      adaptiveOracle: descriptor?.adaptiveOracle ? structuredClone(descriptor.adaptiveOracle) : null,
-      lifecycleOracle: descriptor?.lifecycleOracle ? structuredClone(descriptor.lifecycleOracle) : null,
+      runtime: { status: outcomePayload?.outcome ?? "RUNNING", completedTasks: outcomePayload?.completed ?? completed.size,
+        failedTasks: outcomePayload?.failed ?? failed.size, quality: "DERIVED", source: "LEDGER" },
+      domain: descriptor?.domain
+        ? { value: { summary: structuredClone(descriptor.domain.summary), oracle: structuredClone(descriptor.domain.oracle ?? {}) },
+            quality: "DECLARED", source: "WORKLOAD_DESCRIPTOR" }
+        : null,
+      governanceOracle: descriptor?.governanceOracle
+        ? { value: structuredClone(descriptor.governanceOracle), quality: "DECLARED", source: "WORKLOAD_DESCRIPTOR" } : null,
+      adaptiveOracle: descriptor?.adaptiveOracle
+        ? { value: structuredClone(descriptor.adaptiveOracle), quality: "DECLARED", source: "WORKLOAD_DESCRIPTOR" } : null,
+      lifecycleOracle: descriptor?.lifecycleOracle
+        ? { value: structuredClone(descriptor.lifecycleOracle), quality: "DECLARED", source: "WORKLOAD_DESCRIPTOR" } : null,
     },
   };
 }
