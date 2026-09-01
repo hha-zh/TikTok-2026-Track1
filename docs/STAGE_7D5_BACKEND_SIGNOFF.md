@@ -2,7 +2,7 @@
 
 **Branch:** `feature/travel-lifecycle` · **Base HEAD:** `3a38e85`
 **Repository:** `/Users/qiang/Documents/agentlaunchpad/TikTok-2026-Track1`
-(the task text specified `/home/zhyjh/code/CodeJam`, which does not exist here)
+(the task text named a different absolute path that does not exist here)
 
 **External provider runs: 0.** No Attempt #5. **`apps/web` changed: NO.**
 **Historical Attempt reports changed: NO.**
