@@ -14,3 +14,7 @@ coverage/
 deploy/volcengine/.terraform/
 deploy/volcengine/*.tfstate*
 deploy/volcengine/terraform.tfvars
+
+# Local agent tooling
+.claude/
+skills-lock.json

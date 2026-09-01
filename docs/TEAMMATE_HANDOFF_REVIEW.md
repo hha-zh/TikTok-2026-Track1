@@ -61,7 +61,7 @@ provider/executor usage is accounted post-hoc.
 Initial audit state was clean and synchronized:
 
 ```text
-pwd:          /home/zhyjh/code/CodeJam
+pwd:          <repository root>
 branch:       feature/travel-lifecycle
 local HEAD:   a6cbe897282dbcc5d12c09ee6c261641d03cbecf
 remote HEAD:  a6cbe897282dbcc5d12c09ee6c261641d03cbecf

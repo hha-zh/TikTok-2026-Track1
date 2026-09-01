@@ -2,8 +2,8 @@
 
 **Branch:** `feature/travel-lifecycle` · **Base HEAD:** `3a38e85`
 **Working repository:** `/Users/qiang/Documents/agentlaunchpad/TikTok-2026-Track1`
-(the task specified `/home/zhyjh/code/CodeJam`, which does not exist on this
-machine; same branch, same HEAD, same tree)
+(the task named a different absolute path that does not exist on this machine;
+same branch, same HEAD, same tree)
 
 **External provider / Ark / container executions: 0.** No Attempt #5.
 **`apps/web` changes: none.** **Historical live-proof reports: unchanged.**
@@ -184,8 +184,9 @@ support.
   only production case that exists.
 - **F**'s consequence ("presents invented facts") is currently latent, not active.
 
-From the prior audit, `AUDIT_7A-7D_FINDINGS.md` §3 records one fully REFUTED
-finding (Attempt #4 historical literals). Per instruction it was not reopened.
+One finding from the prior first-pass audit was fully REFUTED — the claim that
+Attempt #4's `noRawChildHandoff` / `earlyRouterTopology` were hard-coded
+literals. It is recorded here so it is not raised again, and it was not reopened.
 
 ---
 
