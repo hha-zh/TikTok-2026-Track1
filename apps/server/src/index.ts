@@ -2,20 +2,35 @@ import path from "node:path";
 import { AgentService } from "./agent-service.js";
 import { createApp } from "./app.js";
 import { loadConfig, writeCodexConfig } from "./config.js";
+import { RunTokenService } from "./middleware/governance/run-token.js";
+import { GovernanceLedger } from "./middleware/evidence/ledger.js";
+import { seedGovernanceFixtures } from "./middleware/governance/fixtures.js";
 import { createRunner } from "./runner-factory.js";
 import { JsonStore } from "./store.js";
 import { WorkspaceManager } from "./workspace.js";
+import { createWorkloadDescriptorResolver } from "./workload/descriptor-registry.js";
 
 const config = loadConfig();
 await writeCodexConfig(config);
 
 const store = new JsonStore(path.join(config.dataDirectory, "launchpad.json"));
+const runTokens = new RunTokenService();
+const ledger = new GovernanceLedger(store);
 const workspaces = new WorkspaceManager(config.workspaceRoot);
 const runner = createRunner(config);
 const service = new AgentService(config, store, workspaces, runner);
 await service.initialize();
 
-const app = await createApp(config, service);
+// Seeds the humans, managed resources and artifact schema. Idempotent, and
+// required before any identity can resolve or any gate can be reached.
+await seedGovernanceFixtures(store);
+
+const app = await createApp(config, service, {
+  store,
+  runTokens,
+  ledger,
+  governedRunDescriptor: createWorkloadDescriptorResolver(store),
+});
 
 const shutdown = async (signal: string) => {
   app.log.info({ signal }, "Shutting down");

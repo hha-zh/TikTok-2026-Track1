@@ -7,7 +7,39 @@ const emptyDatabase = (): Database => ({
   agents: [],
   messages: [],
   runs: [],
+  principals: [],
+  envelopes: [],
+  governanceEvents: [],
+  runStates: [],
+  grantStates: [],
+  mockResources: [],
+  artifacts: [],
+  artifactSchemas: [],
 });
+
+const governanceCollectionNames = [
+  "principals",
+  "envelopes",
+  "governanceEvents",
+  "runStates",
+  "grantStates",
+  "mockResources",
+  "artifacts",
+  "artifactSchemas",
+] as const satisfies ReadonlyArray<keyof Database>;
+
+function normalizeDatabase(parsed: Database): Database {
+  const normalized = { ...parsed };
+  for (const name of governanceCollectionNames) {
+    if (!Array.isArray(normalized[name])) {
+      (normalized[name] as unknown[]) = [];
+    }
+  }
+  normalized.runStates = normalized.runStates.map((state) =>
+    state.maxTokens === undefined ? { ...state, maxTokens: 0 } : state,
+  );
+  return normalized;
+}
 
 export class JsonStore {
   private data: Database = emptyDatabase();
@@ -23,7 +55,7 @@ export class JsonStore {
       if (parsed.version !== 1 || !Array.isArray(parsed.agents)) {
         throw new Error("Unsupported database format");
       }
-      this.data = parsed;
+      this.data = normalizeDatabase(parsed);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
         throw error;

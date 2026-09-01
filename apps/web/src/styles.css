@@ -789,6 +789,82 @@ textarea:focus {
 .message-assistant .message-body {
   padding-left: 14px;
   border-left: 2px solid #8a76e7;
+  white-space: normal;
+}
+
+.assistant-markdown {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.assistant-markdown > :first-child { margin-top: 0; }
+.assistant-markdown > :last-child { margin-bottom: 0; }
+
+.assistant-markdown p {
+  margin: 0 0 9px;
+}
+
+.assistant-markdown h1,
+.assistant-markdown h2,
+.assistant-markdown h3,
+.assistant-markdown h4,
+.assistant-markdown h5,
+.assistant-markdown h6 {
+  margin: 14px 0 7px;
+  color: #292a27;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.assistant-markdown ul,
+.assistant-markdown ol {
+  margin: 7px 0 10px;
+  padding-left: 20px;
+}
+
+.assistant-markdown li {
+  margin: 3px 0;
+  padding-left: 2px;
+}
+
+.assistant-markdown blockquote {
+  margin: 10px 0;
+  padding: 4px 0 4px 11px;
+  border-left: 2px solid #b9afea;
+  color: #66665f;
+}
+
+.assistant-markdown code {
+  border-radius: 4px;
+  padding: 2px 4px;
+  background: #eeece7;
+  color: #54448e;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+}
+
+.assistant-markdown pre {
+  max-width: 100%;
+  margin: 10px 0;
+  overflow-x: auto;
+  border-radius: 8px;
+  padding: 10px 11px;
+  background: #29282d;
+  color: #f4f1fa;
+  white-space: pre;
+}
+
+.assistant-markdown pre code {
+  padding: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.assistant-markdown a {
+  color: #5d48c7;
+  font-weight: 650;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
 }
 
 .thinking {
@@ -853,6 +929,7 @@ textarea:focus {
   color: #999992;
   font-size: 8px;
 }
+
 
 .send-button {
   width: 32px;

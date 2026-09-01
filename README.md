@@ -1,16 +1,19 @@
 # Volc Agent Launchpad
 
-A minimal Agent platform for three-day middleware hackathons. It provides Agent
-CRUD, a browser Playground, persistent workspaces, and Codex CLI backed by the
-Volcengine Ark Responses API.
+A proof-of-concept Agent platform with an Adaptive Agent Runtime Governor. It
+provides Agent CRUD, a browser Playground, persistent workspaces, governed
+resource/delegation/artifact boundaries, and Codex CLI backed by the Volcengine
+Ark Responses API.
 
 Run it locally with Docker, Colima, or rootless Podman, or deploy it to
 Volcengine ECS.
 
 > [!WARNING]
-> This is a single-user proof of concept. It intentionally has no identity,
-> tracing, audit, or hardened sandbox middleware. Do not use production data or
-> credentials. See [SECURITY.md](SECURITY.md).
+> This is a single-user proof of concept, not a production security boundary.
+> Governed runs have Runtime identity, authorization and append-only governance
+> evidence, but complete mediation is limited to Bouncer-managed crossings and
+> HG-14 remains PARTIAL. Do not use production data or credentials. See
+> [SECURITY.md](SECURITY.md) and [BUILD_STATE.md](BUILD_STATE.md).
 
 ## Screenshots
 
@@ -29,6 +32,8 @@ Volcengine ECS.
 - Fastify control plane with asynchronous Run state
 - Persistent Agent workspaces and Codex sessions
 - Disposable Docker, Colima, or Podman container for each local turn
+- Adaptive WHO/HOW routing inside parallel Authority and Budget/Horizon constraints
+- Governed resource, delegation and bounded child-to-parent Return Gates
 - Docker and Terraform deployment paths for Volcengine ECS
 
 ## Requirements

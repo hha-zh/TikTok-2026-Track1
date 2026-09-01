@@ -3,7 +3,7 @@ import path from "node:path";
 import { z } from "zod";
 
 const envSchema = z.object({
-  HOST: z.string().default("0.0.0.0"),
+  HOST: z.string().default("127.0.0.1"),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   LOG_LEVEL: z.string().default("info"),
   APP_DATA_DIR: z.string().default(path.resolve(".data")),
@@ -113,6 +113,9 @@ export async function writeCodexConfig(config: AppConfig): Promise<void> {
     'env_key = "ARK_API_KEY"',
     'wire_api = "responses"',
     "requires_openai_auth = false",
+    "",
+    "[sandbox_workspace_write]",
+    "network_access = true",
     "",
   ].join("\n");
   await writeFile(path.join(config.codexHome, "config.toml"), toml, {

@@ -1,4 +1,16 @@
+import type { GovernanceEvent } from "./middleware/evidence/types.js";
+import type {
+  Artifact,
+  ArtifactSchema,
+  Envelope,
+  GrantState,
+  MockResource,
+  Principal,
+  RunState,
+} from "./middleware/governance/types.js";
+
 export type AgentStatus = "ready" | "busy" | "stopped" | "error";
+export type AgentOrigin = "user" | "governed-runtime";
 export type RunStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
 export type MessageRole = "user" | "assistant";
 
@@ -8,6 +20,7 @@ export interface Agent {
   description: string;
   instructions: string;
   status: AgentStatus;
+  origin: AgentOrigin;
   workspacePath: string;
   codexThreadId: string | null;
   lastError: string | null;
@@ -48,12 +61,21 @@ export interface Database {
   agents: Agent[];
   messages: Message[];
   runs: AgentRun[];
+  principals: Principal[];
+  envelopes: Envelope[];
+  governanceEvents: GovernanceEvent[];
+  runStates: RunState[];
+  grantStates: GrantState[];
+  mockResources: MockResource[];
+  artifacts: Artifact[];
+  artifactSchemas: ArtifactSchema[];
 }
 
 export interface CreateAgentInput {
   name: string;
   description?: string | undefined;
   instructions?: string | undefined;
+  origin?: AgentOrigin | undefined;
 }
 
 export interface UpdateAgentInput {
@@ -73,6 +95,7 @@ export interface RunnerRequest {
   workspacePath: string;
   prompt: string;
   threadId: string | null;
+  runtimeRunToken?: string;
 }
 
 export interface AgentRunner {

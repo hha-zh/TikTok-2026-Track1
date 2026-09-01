@@ -1,26 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError, setAuthToken } from "./api";
 import type { Agent, AgentRun, Message, SystemInfo } from "./types";
+import { GovernanceInspector } from "./governance/GovernanceInspector";
+import { isTravelDemoAgent, startUserTravelDemo, type GovernanceBinding } from "./governance/travelDemo";
+import { getGovernedRun } from "./governance/api";
+import { ConversationMessage, GOVERNED_PROGRESS_LABEL } from "./ConversationMessage";
 
 const starterPrompts = [
-  "Create a small TypeScript CLI that prints a weather summary from sample JSON.",
-  "Inspect this workspace and explain what you would improve first.",
-  "Build a responsive single-page todo app with tests.",
+  "Help me organize a recovery plan from the constraints I provide.",
+  "Review this situation and explain the safest next step.",
+  "Break a complex task into a clear plan and summarize the result.",
 ];
 
 const emptyForm = {
   name: "",
   description: "",
   instructions:
-    "Help me build and test software in this workspace. Keep changes small and explain the result.",
+    "Help me complete tasks carefully. Keep actions scoped and explain the result.",
 };
-
-function formatTime(value: string): string {
-  return new Intl.DateTimeFormat(undefined, {
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
-}
 
 function StatusPill({ status }: { status: Agent["status"] }) {
   return (
@@ -49,6 +46,10 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [authRequired, setAuthRequired] = useState<boolean | null>(null);
   const [authInput, setAuthInput] = useState("");
+  const [governanceOpen, setGovernanceOpen] = useState(false);
+  const [governanceBinding, setGovernanceBinding] = useState<GovernanceBinding | null>(null);
+  const [governanceBridgeError, setGovernanceBridgeError] = useState<string | null>(null);
+  const [governanceResetKey, setGovernanceResetKey] = useState(0);
   const messageEnd = useRef<HTMLDivElement>(null);
   const selectedIdRef = useRef<string | null>(null);
   const mountedRef = useRef(true);
@@ -68,6 +69,7 @@ export default function App() {
         ? current
         : (next[0]?.id ?? null),
     );
+    return next;
   }, []);
 
   const refreshMessages = useCallback(async (agentId: string) => {
@@ -75,6 +77,7 @@ export default function App() {
     if (mountedRef.current && selectedIdRef.current === agentId) {
       setMessages(result.messages);
     }
+    return result.messages;
   }, []);
 
   const bootstrap = useCallback(async () => {
@@ -226,6 +229,41 @@ export default function App() {
     const content = prompt.trim();
     setPrompt("");
     setError(null);
+    if (isTravelDemoAgent(selected.name)) {
+      setGovernanceBridgeError(null);
+      setGovernanceResetKey((current) => current + 1);
+      setAgents((current) => current.map((agent) =>
+        agent.id === selected.id ? { ...agent, status: "busy" } : agent));
+      try {
+        const binding = await startUserTravelDemo(content, selected.id);
+        if (!mountedRef.current) return;
+        setGovernanceBinding({ ...binding, displayName: selected.name });
+        await refreshMessages(selected.id);
+        while (mountedRef.current) {
+          const { run } = await getGovernedRun(binding.runId, binding.principalId);
+          if (run.run.status !== "RUNNING") {
+            for (let attempt = 0; attempt < 50; attempt += 1) {
+              const [, nextAgents] = await Promise.all([
+                refreshMessages(selected.id), refreshAgents(),
+              ]);
+              if (nextAgents.find((agent) => agent.id === selected.id)?.status !== "busy") break;
+              await new Promise((resolve) => window.setTimeout(resolve, 100));
+            }
+            if (run.run.status !== "COMPLETED") {
+              setGovernanceBridgeError("Governed Travel execution did not complete.");
+            }
+            return;
+          }
+          await new Promise((resolve) => window.setTimeout(resolve, 900));
+        }
+      } catch (reason) {
+        if (mountedRef.current) {
+          setGovernanceBridgeError(reason instanceof Error ? reason.message : String(reason));
+          await Promise.all([refreshMessages(selected.id), refreshAgents()]);
+        }
+      }
+      return;
+    }
     try {
       const result = await api.sendMessage(selected.id, content);
       if (selectedIdRef.current === selected.id) {
@@ -307,7 +345,7 @@ export default function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className={"app-shell " + (governanceOpen ? "governance-open" : "governance-closed")}>
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark">A</div>
@@ -345,7 +383,7 @@ export default function App() {
               <div className="agent-avatar">{agent.name.slice(0, 1).toUpperCase()}</div>
               <div className="agent-card-copy">
                 <strong>{agent.name}</strong>
-                <span>{agent.description || "Coding Agent"}</span>
+                <span>{agent.description || "Agent"}</span>
               </div>
               <span className={"mini-dot mini-" + agent.status} />
             </button>
@@ -353,7 +391,7 @@ export default function App() {
           {agents.length === 0 && (
             <div className="empty-sidebar">
               <span>◇</span>
-              Create your first coding Agent.
+              Create your first Agent.
             </div>
           )}
         </nav>
@@ -400,7 +438,7 @@ export default function App() {
                   <h1>{selected.name}</h1>
                   <StatusPill status={selected.status} />
                 </div>
-                <p>{selected.description || "A Codex coding Agent in an isolated workspace."}</p>
+                <p>{selected.description || "A Codex-powered Agent in an isolated workspace."}</p>
               </div>
               <div className="header-actions">
                 <button
@@ -481,7 +519,7 @@ export default function App() {
               <div className="playground-topbar">
                 <div>
                   <span className="eyebrow">Playground</span>
-                  <h2>Build something with your Agent</h2>
+                  <h2>Work with your Agent</h2>
                 </div>
                 <div className="session-info">
                   <span className="pulse" />
@@ -495,7 +533,7 @@ export default function App() {
                     <div className="welcome-orbit">
                       <div>⌁</div>
                     </div>
-                    <h3>What should {selected.name} build?</h3>
+                    <h3>What should {selected.name} help with?</h3>
                     <p>
                       The Agent can inspect files, write code, run commands, and continue the
                       same Codex session across messages.
@@ -511,13 +549,11 @@ export default function App() {
                   </div>
                 ) : (
                   messages.map((message) => (
-                    <article className={"message message-" + message.role} key={message.id}>
-                      <div className="message-meta">
-                        <strong>{message.role === "user" ? "You" : selected.name}</strong>
-                        <span>{formatTime(message.createdAt)}</span>
-                      </div>
-                      <div className="message-body">{message.content}</div>
-                    </article>
+                    <ConversationMessage
+                      key={message.id}
+                      message={message}
+                      agentDisplayName={selected.name}
+                    />
                   ))
                 )}
                 {activeRun && ["queued", "running"].includes(activeRun.status) && (
@@ -528,7 +564,19 @@ export default function App() {
                     </div>
                     <div className="thinking-row">
                       <Spinner />
-                      Codex is reading, editing, or running commands…
+                      Codex is working in the Agent workspace…
+                    </div>
+                  </article>
+                )}
+                {!activeRun && selected.status === "busy" && isTravelDemoAgent(selected.name) && (
+                  <article className="message message-assistant thinking">
+                    <div className="message-meta">
+                      <strong>{selected.name}</strong>
+                      <span>governed runtime active</span>
+                    </div>
+                    <div className="thinking-row">
+                      <Spinner />
+                      {GOVERNED_PROGRESS_LABEL}
                     </div>
                   </article>
                 )}
@@ -588,7 +636,7 @@ export default function App() {
             <div className="no-agent-art">A</div>
             <span className="eyebrow">Agent Launchpad</span>
             <h1>Your runtime is ready for an Agent.</h1>
-            <p>Create a workspace, give Codex a job, and continue the conversation here.</p>
+            <p>Create an Agent, give it a task, and continue the conversation here.</p>
             <button
               className="button button-primary"
               onClick={() => {
@@ -601,6 +649,14 @@ export default function App() {
           </div>
         )}
       </main>
+
+      <GovernanceInspector
+        open={governanceOpen}
+        onToggle={() => setGovernanceOpen((value) => !value)}
+        binding={governanceBinding}
+        bridgeError={governanceBridgeError}
+        resetKey={governanceResetKey}
+      />
 
       {showCreate && (
         <div className="modal-backdrop" onMouseDown={() => setShowCreate(false)}>
@@ -621,7 +677,7 @@ export default function App() {
               Name
               <input
                 autoFocus
-                placeholder="Frontend Builder"
+                placeholder="Travel Recovery Assistant"
                 value={form.name}
                 onChange={(event) => setForm({ ...form, name: event.target.value })}
                 required
@@ -631,7 +687,7 @@ export default function App() {
             <label>
               Description
               <input
-                placeholder="Builds polished React prototypes"
+                placeholder="Helps plan safe travel recovery options"
                 value={form.description}
                 onChange={(event) =>
                   setForm({ ...form, description: event.target.value })
