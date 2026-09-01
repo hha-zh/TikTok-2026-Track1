@@ -10,6 +10,7 @@ import type {
 } from "./middleware/governance/types.js";
 
 export type AgentStatus = "ready" | "busy" | "stopped" | "error";
+export type AgentOrigin = "user" | "governed-runtime";
 export type RunStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
 export type MessageRole = "user" | "assistant";
 
@@ -19,6 +20,7 @@ export interface Agent {
   description: string;
   instructions: string;
   status: AgentStatus;
+  origin: AgentOrigin;
   workspacePath: string;
   codexThreadId: string | null;
   lastError: string | null;
@@ -73,6 +75,7 @@ export interface CreateAgentInput {
   name: string;
   description?: string | undefined;
   instructions?: string | undefined;
+  origin?: AgentOrigin | undefined;
 }
 
 export interface UpdateAgentInput {

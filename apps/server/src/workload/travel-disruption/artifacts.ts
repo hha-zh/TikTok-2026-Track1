@@ -9,6 +9,16 @@ export const TYPE_IDENTITY_VERIFICATION = "IdentityVerification";
 export const TYPE_VALIDATED_RECOVERY = "ValidatedRecoveryPlan";
 export const TYPE_FINAL_RECOVERY = "FinalTravelRecoveryPlan";
 
+export interface FinalTravelRecoveryPlan {
+  transport_option_id: string;
+  accommodation_option_id: string;
+  route_option_id: string;
+  final_arrival: string;
+  total_additional_spend_sgd: number;
+  approval_required: "yes" | "no";
+  status: "ready_for_approval" | "ready";
+}
+
 const schema = (artifactType: string, fields: string[]): ArtifactSchema => ({
   artifactType,
   version: 1,

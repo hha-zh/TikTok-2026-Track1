@@ -57,6 +57,60 @@ async function makeService(runner: AgentRunner = new FakeRunner()): Promise<Agen
 }
 
 describe("Agent lifecycle", () => {
+  it("lists only user-created Agents while retaining runtime Agents internally", async () => {
+    const service = await makeService();
+    const user = await service.createAgent({ name: "Travel Recovery Assistant" });
+    const runtimeRoot = await service.createAgent({ name: "Runtime root", origin: "governed-runtime" });
+    const runtimeChild = await service.createAgent({ name: "Runtime child", origin: "governed-runtime" });
+
+    expect(service.listAgents().map((agent) => agent.id)).toEqual([user.id]);
+    expect(service.getAgent(runtimeRoot.id).origin).toBe("governed-runtime");
+    expect(service.getAgent(runtimeChild.id).origin).toBe("governed-runtime");
+  });
+
+  it("persists a governed conversation without invoking the runner and restores READY", async () => {
+    let calls = 0;
+    const service = await makeService({ run: async () => { calls += 1; throw new Error("must not run"); },
+      cancel: async () => false, isAvailable: async () => true });
+    const agent = await service.createAgent({ name: "Travel Recovery Assistant" });
+    await service.beginGovernedConversation(agent.id, "governed-run", "recover my trip");
+    expect(service.getAgent(agent.id).status).toBe("busy");
+    await service.completeGovernedConversation(agent.id, "governed-run", "### Recovery plan ready");
+    expect(service.getAgent(agent.id).status).toBe("ready");
+    expect(service.getMessages(agent.id).map(({ role, content }) => ({ role, content }))).toEqual([
+      { role: "user", content: "recover my trip" },
+      { role: "assistant", content: "### Recovery plan ready" },
+    ]);
+    expect(calls).toBe(0);
+  });
+
+  it("migrates legacy governed task executors structurally across reload", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "launchpad-origin-migration-"));
+    temporaryDirectories.push(root);
+    const dataPath = path.join(root, "data", "db.json");
+    const workspacePath = path.join(root, "workspaces");
+    const config = loadConfig({ NODE_ENV: "test", APP_DATA_DIR: path.dirname(dataPath),
+      AGENT_WORKSPACE_ROOT: workspacePath, CODEX_HOME: path.join(root, "codex"),
+      ARK_API_KEY: "test-key", ARK_MODEL: "ep-test" });
+    const store = new JsonStore(dataPath);
+    const first = new AgentService(config, store, new WorkspaceManager(workspacePath), new FakeRunner());
+    await first.initialize();
+    const user = await first.createAgent({ name: "Travel Recovery Assistant" });
+    const legacyRuntime = await first.createAgent({ name: "Legacy executor" });
+    await store.mutate((database) => {
+      const agent = database.agents.find((item) => item.id === legacyRuntime.id)!;
+      delete (agent as Partial<typeof agent>).origin;
+      database.messages.push({ id: "legacy-message", agentId: legacyRuntime.id, runId: "legacy-run",
+        role: "user", content: "[travel-task:search_transport] bounded task", createdAt: new Date().toISOString() });
+    });
+    const reloadedStore = new JsonStore(dataPath);
+    const reloaded = new AgentService(config, reloadedStore, new WorkspaceManager(workspacePath), new FakeRunner());
+    await reloaded.initialize();
+
+    expect(reloaded.listAgents().map((agent) => agent.id)).toEqual([user.id]);
+    expect(reloaded.getAgent(legacyRuntime.id).origin).toBe("governed-runtime");
+  });
+
   it("creates, updates, stops, starts and deletes an Agent", async () => {
     const service = await makeService();
     const agent = await service.createAgent({ name: "Builder" });

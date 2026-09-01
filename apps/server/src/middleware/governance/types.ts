@@ -37,6 +37,12 @@ export interface RunState {
     workloadId: string;
     descriptorVersion: string;
   };
+  /** Schema-validated root own-task result. Separate from cross-principal Return Gate artifacts. */
+  finalResult?: {
+    type: string;
+    quality: "OBSERVED";
+    boundedFields: Record<string, unknown>;
+  };
 }
 
 export interface GrantState {

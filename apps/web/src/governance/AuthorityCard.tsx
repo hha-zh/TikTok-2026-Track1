@@ -13,16 +13,31 @@ export function AuthorityCard({ events, delegations }: {
         <div className="authority-events">
           {authorityEvents.map((event) => (
             <div className={`authority-event authority-${event.verdict?.toLowerCase()}`} key={event.eventId}>
-              <div><strong>{event.principalId}</strong><span className={`verdict verdict-${event.verdict?.toLowerCase()}`}>{event.verdict}</span></div>
-              <span>{event.action ?? "action unavailable"}{event.resourceId ? ` · ${event.resourceId}` : ""}</span>
+              <div><strong>{event.resourceId ?? event.action ?? event.kind}</strong><span className={`verdict verdict-${event.verdict?.toLowerCase()}`}>{event.verdict}</span></div>
               {event.reasonCode && <code>{event.reasonCode}</code>}
+              <details className="technical-details">
+                <summary>Technical IDs</summary>
+                <dl>
+                  <div><dt>Principal</dt><dd>{event.principalId}</dd></div>
+                  <div><dt>Grant</dt><dd>{event.grantId}</dd></div>
+                  <div><dt>Event</dt><dd>{event.kind}</dd></div>
+                  {event.action && <div><dt>Action</dt><dd>{event.action}</dd></div>}
+                </dl>
+              </details>
             </div>
           ))}
           {delegations.map((delegation) => (
             <div className="authority-delegated" key={delegation.child.grantId}>
               <span aria-hidden="true">↓</span>
-              <strong>{delegation.child.principalId}</strong>
-              <small>Restricted delegated grant · {delegation.child.lifecycle}</small>
+              <strong>Restricted delegated grant</strong>
+              <small>Specialist authority · {delegation.child.lifecycle}</small>
+              <details className="technical-details">
+                <summary>Technical IDs</summary>
+                <dl>
+                  <div><dt>Child principal</dt><dd>{delegation.child.principalId}</dd></div>
+                  <div><dt>Child grant</dt><dd>{delegation.child.grantId}</dd></div>
+                </dl>
+              </details>
             </div>
           ))}
         </div>

@@ -117,6 +117,11 @@ export interface GovernedRunView {
     lifecycle: { created: boolean; published: boolean; recipients: string[] };
     boundedFields: Record<string, unknown>;
   }>;
+  finalResult: {
+    type: string;
+    quality: "OBSERVED";
+    boundedFields: Record<string, unknown>;
+  } | null;
   governanceEvents: SafeGovernanceEventView[];
   usageFeedback: {
     provenance: { value: string | null; quality: EvidenceQuality };
@@ -327,6 +332,7 @@ export function buildGovernedRunView(store: JsonStore, runId: string, descriptor
       lifecycle: { created: createdIds.has(artifact.id), published: publishedIds.has(artifact.id), recipients: [...artifact.recipients] },
       boundedFields: structuredClone(artifact.fields),
     })),
+    finalResult: runState.finalResult ? structuredClone(runState.finalResult) : null,
     governanceEvents: safeEvents,
     usageFeedback: {
       provenance: descriptor?.executionProvenance ? { value: descriptor.executionProvenance, quality: "DECLARED" } : { value: null, quality: "UNAVAILABLE" },

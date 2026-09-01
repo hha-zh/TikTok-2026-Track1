@@ -10,9 +10,18 @@ export function RunSafeguards({ events }: { events: GovernanceEvent[] }) {
         <div className="authority-events">
           {safeguards.map((event) => (
             <div className={`authority-event authority-${event.verdict?.toLowerCase()}`} key={event.eventId}>
-              <div><strong>{event.principalId}</strong><span className={`verdict verdict-${event.verdict?.toLowerCase()}`}>{event.verdict}</span></div>
-              <span>{event.action ?? "action unavailable"}{event.resourceId ? ` · ${event.resourceId}` : ""}</span>
+              <div><strong>{event.resourceId ?? event.action ?? event.kind}</strong><span className={`verdict verdict-${event.verdict?.toLowerCase()}`}>{event.verdict}</span></div>
               {event.reasonCode && <code>{event.reasonCode}</code>}
+              <details className="technical-details">
+                <summary>Technical details</summary>
+                <dl>
+                  <div><dt>Event</dt><dd>{event.kind}</dd></div>
+                  <div><dt>Principal</dt><dd>{event.principalId}</dd></div>
+                  <div><dt>Grant</dt><dd>{event.grantId}</dd></div>
+                  <div><dt>Sequence</dt><dd>{event.sequence}</dd></div>
+                  {event.action && <div><dt>Action</dt><dd>{event.action}</dd></div>}
+                </dl>
+              </details>
             </div>
           ))}
         </div>

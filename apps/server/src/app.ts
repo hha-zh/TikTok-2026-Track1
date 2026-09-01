@@ -2,6 +2,7 @@ import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance } from "fastify";
 import { timingSafeEqual } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import type { AppConfig } from "./config.js";
@@ -34,6 +35,7 @@ import {
   publishArtifact,
   readArtifact,
 } from "./middleware/governance/artifacts.js";
+import { formatFinalTravelRecoveryPlan, startRealTravelDemoRun, startTravelDemoRun } from "./workload/travel-disruption/demo-run.js";
 
 interface GovernanceDependencies extends IdentityDependencies {
   ledger: GovernanceLedger;
@@ -64,6 +66,13 @@ const governedRunBody = z
   .object({
     agentId: z.string().uuid(),
     task: z.string().trim().min(1).max(20_000),
+  })
+  .strict();
+const travelDemoRunBody = z
+  .object({
+    request: z.string().trim().min(1).max(20_000).optional(),
+    executionMode: z.enum(["deterministic", "real"]).default("deterministic"),
+    agentId: z.string().uuid().optional(),
   })
   .strict();
 
@@ -255,6 +264,57 @@ export async function createApp(
       identityDependencies.governedRunDescriptor?.(parsed.data.id),
     );
     return view ? reply.send({ run: view }) : reply.code(404).send({ error: "Not found" });
+  });
+
+  app.post("/api/governance/travel-demo-runs", async (request, reply) => {
+    if (!identityDependencies?.ledger) {
+      return reply.code(503).send({ error: "Governance unavailable" });
+    }
+    const parsed = travelDemoRunBody.safeParse(request.body ?? {});
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "malformed_input", reason: "MALFORMED_INPUT" });
+    }
+    if (parsed.data.executionMode === "real"
+      && (config.runtimeProvider !== "container" || ["127.0.0.1", "::1", "localhost"].includes(config.host))) {
+      return reply.code(503).send({
+        error: "Real Travel mode requires RUNTIME_PROVIDER=container and HOST=0.0.0.0",
+      });
+    }
+    if (parsed.data.executionMode === "real" && !parsed.data.agentId) {
+      return reply.code(400).send({ error: "Persistent user Agent is required" });
+    }
+    if (parsed.data.agentId) {
+      const target = service.getAgent(parsed.data.agentId);
+      if (target.origin !== "user") return reply.code(400).send({ error: "Persistent user Agent is required" });
+    }
+    const requestedRunId = `${parsed.data.executionMode === "real" ? "travel-real" : "travel-demo"}-${randomUUID()}`;
+    if (parsed.data.agentId) {
+      await service.beginGovernedConversation(parsed.data.agentId, requestedRunId,
+        parsed.data.request ?? "Travel recovery request");
+    }
+    let demo;
+    try {
+      demo = parsed.data.executionMode === "real"
+        ? await startRealTravelDemoRun({ config, store: identityDependencies.store,
+            ledger: identityDependencies.ledger, runTokens: identityDependencies.runTokens,
+            agents: service, runId: requestedRunId })
+        : await startTravelDemoRun(identityDependencies.store, identityDependencies.ledger,
+            config.nodeEnv === "test" ? 10 : 1_500, requestedRunId);
+    } catch (error) {
+      if (parsed.data.agentId) await service.failGovernedConversation(parsed.data.agentId, error);
+      throw error;
+    }
+    void demo.completion.then(async (finalResult) => {
+      if (parsed.data.agentId) {
+        await service.completeGovernedConversation(parsed.data.agentId, demo.runId,
+          formatFinalTravelRecoveryPlan(finalResult));
+      }
+    }).catch(async (error: unknown) => {
+      if (parsed.data.agentId) await service.failGovernedConversation(parsed.data.agentId, error);
+      app.log.error({ err: error, runId: demo.runId }, "Travel demo run failed");
+    });
+    return reply.code(202).send({ runId: demo.runId, principalId: demo.principalId,
+      executionMode: parsed.data.executionMode });
   });
 
   app.get("/api/resources/*", async (request, reply) => {

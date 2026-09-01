@@ -119,6 +119,11 @@ export interface GovernedRunView {
     lifecycle: { created: boolean; published: boolean; recipients: string[] };
     boundedFields: Record<string, unknown>;
   }>;
+  finalResult: {
+    type: string;
+    quality: "OBSERVED";
+    boundedFields: Record<string, unknown>;
+  } | null;
   governanceEvents: GovernanceEvent[];
   usageFeedback: {
     provenance: { value: string | null; quality: EvidenceQuality };

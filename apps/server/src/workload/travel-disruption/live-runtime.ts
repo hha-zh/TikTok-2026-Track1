@@ -253,6 +253,7 @@ export function createLiveTravelRuntime(dependencies: LiveTravelRuntimeDependenc
       name: `Travel task ${taskId}`,
       description: "Isolated governed Travel task executor",
       instructions: "Do not inspect the workspace. Execute only the supplied bounded task and stop.",
+      origin: "governed-runtime",
     });
     rootAgentIds.set(taskId, agent.id);
     return agent.id;

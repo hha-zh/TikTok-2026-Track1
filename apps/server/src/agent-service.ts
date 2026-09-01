@@ -9,11 +9,19 @@ import type {
   AgentRunner,
   CreateAgentInput,
   Message,
+  Database,
   UpdateAgentInput,
 } from "./types.js";
 import { WorkspaceManager } from "./workspace.js";
 
 const now = () => new Date().toISOString();
+
+const legacyGovernedAgentIds = (database: Pick<Database, "messages" | "runs">) => new Set([
+  ...database.messages.filter((message) =>
+    /\[(?:travel|bouncer)-task:[a-z0-9_]+\]/.test(message.content)).map((message) => message.agentId),
+  ...database.runs.filter((run) =>
+    /\[(?:travel|bouncer)-task:[a-z0-9_]+\]/.test(run.prompt)).map((run) => run.agentId),
+]);
 
 export interface GovernedExecutionContext {
   runtimeRunToken: string;
@@ -35,6 +43,7 @@ export class AgentService {
     await this.store.initialize();
     await this.workspaces.initialize();
     await this.store.mutate((database) => {
+      const governedAgentIds = legacyGovernedAgentIds(database);
       for (const run of database.runs) {
         if (run.status === "queued" || run.status === "running") {
           run.status = "cancelled";
@@ -43,6 +52,7 @@ export class AgentService {
         }
       }
       for (const agent of database.agents) {
+        agent.origin ??= governedAgentIds.has(agent.id) ? "governed-runtime" : "user";
         if (agent.status === "busy") {
           agent.status = "ready";
           agent.updatedAt = now();
@@ -52,9 +62,11 @@ export class AgentService {
   }
 
   listAgents(): Agent[] {
-    return this.store
-      .snapshot()
-      .agents.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+    const database = this.store.snapshot();
+    const legacyRuntime = legacyGovernedAgentIds(database);
+    return database.agents
+      .filter((agent) => agent.origin !== "governed-runtime" && !legacyRuntime.has(agent.id))
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   }
 
   getAgent(id: string): Agent {
@@ -74,6 +86,7 @@ export class AgentService {
       description: input.description?.trim() ?? "",
       instructions: input.instructions?.trim() ?? "",
       status: "ready",
+      origin: input.origin ?? "user",
       workspacePath: this.workspaces.workspacePath(id),
       codexThreadId: null,
       lastError: null,
@@ -160,6 +173,49 @@ export class AgentService {
     prompt: string,
   ): Promise<{ run: AgentRun; message: Message }> {
     return this.scheduleMessage(agentId, prompt);
+  }
+
+  async beginGovernedConversation(agentId: string, governedRunId: string, content: string): Promise<Message> {
+    const timestamp = now();
+    const message: Message = { id: randomUUID(), agentId, runId: governedRunId,
+      role: "user", content, createdAt: timestamp };
+    await this.store.mutate((database) => {
+      const agent = database.agents.find((item) => item.id === agentId);
+      if (!agent || agent.origin !== "user") throw new HttpError(404, "Persistent Agent not found");
+      if (agent.status === "stopped") throw new HttpError(409, "Start the Agent before sending a message");
+      if (agent.status === "busy") throw new HttpError(409, "This Agent is already running");
+      database.messages.push(message);
+      agent.status = "busy";
+      agent.lastError = null;
+      agent.updatedAt = timestamp;
+    });
+    return message;
+  }
+
+  async completeGovernedConversation(agentId: string, governedRunId: string, content: string): Promise<Message> {
+    const timestamp = now();
+    const message: Message = { id: randomUUID(), agentId, runId: governedRunId,
+      role: "assistant", content, createdAt: timestamp };
+    await this.store.mutate((database) => {
+      const agent = database.agents.find((item) => item.id === agentId && item.origin === "user");
+      if (!agent) throw new HttpError(404, "Persistent Agent not found");
+      database.messages.push(message);
+      agent.status = "ready";
+      agent.lastError = null;
+      agent.updatedAt = timestamp;
+    });
+    return message;
+  }
+
+  async failGovernedConversation(agentId: string, error: unknown): Promise<void> {
+    const message = error instanceof Error ? error.message : String(error);
+    await this.store.mutate((database) => {
+      const agent = database.agents.find((item) => item.id === agentId && item.origin === "user");
+      if (!agent) return;
+      agent.status = "ready";
+      agent.lastError = message;
+      agent.updatedAt = now();
+    });
   }
 
   /**

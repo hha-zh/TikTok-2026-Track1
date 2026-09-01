@@ -20,6 +20,7 @@ export interface DelegatedAgentPlatform {
     name: string;
     description?: string;
     instructions?: string;
+    origin?: "user" | "governed-runtime";
   }): Promise<Agent>;
   sendGovernedMessage(
     agentId: string,
@@ -105,6 +106,7 @@ export class DelegatedAgentLauncher {
         description: "Attenuated delegated Agent",
         instructions:
           "Execute only the delegated task. Use Bouncer-managed callbacks for governed resources and never reveal credentials.",
+        origin: "governed-runtime",
       });
 
       const database = this.dependencies.store.snapshot();

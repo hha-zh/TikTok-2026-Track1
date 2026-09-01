@@ -2,14 +2,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { getGovernedRun } from "./api";
 import type { GovernedRunView } from "./types";
 
-export function useGovernedRun(runId: string, principalId: string, enabled: boolean) {
+export function useGovernedRun(runId: string, principalId: string, enabled: boolean, pollingMs = 2_000) {
   const [run, setRun] = useState<GovernedRunView | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 
-  const fetchRun = useCallback(async (clearExisting: boolean) => {
-    if (!runId.trim() || !principalId.trim()) return;
+  const fetchTarget = useCallback(async (targetRunId: string, targetPrincipalId: string, clearExisting: boolean) => {
+    if (!targetRunId.trim() || !targetPrincipalId.trim()) return;
     if (clearExisting) {
       setRun(null);
       setSelectedTaskId(null);
@@ -17,23 +17,34 @@ export function useGovernedRun(runId: string, principalId: string, enabled: bool
     setLoading(true);
     setError(null);
     try {
-      const result = await getGovernedRun(runId.trim(), principalId.trim());
+      const result = await getGovernedRun(targetRunId.trim(), targetPrincipalId.trim());
       setRun(result.run);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
       setLoading(false);
     }
-  }, [principalId, runId]);
+  }, []);
 
-  const load = useCallback(() => fetchRun(true), [fetchRun]);
-  const refresh = useCallback(() => fetchRun(false), [fetchRun]);
+  const load = useCallback(() => fetchTarget(runId, principalId, true), [fetchTarget, principalId, runId]);
+  const refresh = useCallback(() => fetchTarget(runId, principalId, false), [fetchTarget, principalId, runId]);
+  const bind = useCallback(
+    (targetRunId: string, targetPrincipalId: string) =>
+      fetchTarget(targetRunId, targetPrincipalId, true),
+    [fetchTarget],
+  );
+  const clear = useCallback(() => {
+    setRun(null);
+    setSelectedTaskId(null);
+    setError(null);
+    setLoading(false);
+  }, []);
 
   useEffect(() => {
     if (!enabled || !run || run.run.status !== "RUNNING") return;
-    const timer = window.setInterval(() => void refresh(), 2_000);
+    const timer = window.setInterval(() => void refresh(), pollingMs);
     return () => window.clearInterval(timer);
-  }, [enabled, refresh, run]);
+  }, [enabled, pollingMs, refresh, run]);
 
   const observedTasks = useMemo(() => {
     if (!run) return [];
@@ -57,5 +68,5 @@ export function useGovernedRun(runId: string, principalId: string, enabled: bool
 
   const selectedTask = observedTasks.find((task) => task.taskId === selectedTaskId) ?? null;
 
-  return { run, loading, error, load, refresh, observedTasks, selectedTask, selectedTaskId, setSelectedTaskId };
+  return { run, loading, error, load, bind, clear, refresh, observedTasks, selectedTask, selectedTaskId, setSelectedTaskId };
 }

@@ -1,4 +1,3 @@
-import { EvidenceBadge } from "./EvidenceBadge";
 import { taskPresentation } from "./presentation";
 import type { GovernedTask } from "./types";
 
@@ -23,10 +22,8 @@ export function TaskLifecycle({ tasks, selectedTaskId, onSelect }: {
               aria-pressed={selectedTaskId === task.taskId}
               onClick={() => onSelect(task.taskId)}
             >
-              <span className="lifecycle-dot" />
+              <span className="lifecycle-state" aria-hidden="true"><span className="lifecycle-dot" /></span>
               <strong>{presentation.label}</strong>
-              <code>{presentation.technicalId}</code>
-              <span className="lifecycle-evidence"><EvidenceBadge quality={presentation.labelQuality} /><small>{task.status} · {task.statusQuality}</small></span>
             </button>
             );
           })}
