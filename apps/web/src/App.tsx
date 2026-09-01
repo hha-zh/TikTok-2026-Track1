@@ -3,8 +3,8 @@ import { api, ApiError, setAuthToken } from "./api";
 import type { Agent, AgentRun, Message, SystemInfo } from "./types";
 import { GovernanceInspector } from "./governance/GovernanceInspector";
 import { isTravelDemoAgent, startUserTravelDemo, type GovernanceBinding } from "./governance/travelDemo";
-import { AssistantMarkdown } from "./AssistantMarkdown";
 import { getGovernedRun } from "./governance/api";
+import { ConversationMessage, GOVERNED_PROGRESS_LABEL } from "./ConversationMessage";
 
 const starterPrompts = [
   "Help me organize a recovery plan from the constraints I provide.",
@@ -18,13 +18,6 @@ const emptyForm = {
   instructions:
     "Help me complete tasks carefully. Keep actions scoped and explain the result.",
 };
-
-function formatTime(value: string): string {
-  return new Intl.DateTimeFormat(undefined, {
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
-}
 
 function StatusPill({ status }: { status: Agent["status"] }) {
   return (
@@ -556,17 +549,11 @@ export default function App() {
                   </div>
                 ) : (
                   messages.map((message) => (
-                    <article className={"message message-" + message.role} key={message.id}>
-                      <div className="message-meta">
-                        <strong>{message.role === "user" ? "You" : selected.name}</strong>
-                        <span>{formatTime(message.createdAt)}</span>
-                      </div>
-                      <div className="message-body">
-                        {message.role === "assistant"
-                          ? <AssistantMarkdown>{message.content}</AssistantMarkdown>
-                          : message.content}
-                      </div>
-                    </article>
+                    <ConversationMessage
+                      key={message.id}
+                      message={message}
+                      agentDisplayName={selected.name}
+                    />
                   ))
                 )}
                 {activeRun && ["queued", "running"].includes(activeRun.status) && (
@@ -589,7 +576,7 @@ export default function App() {
                     </div>
                     <div className="thinking-row">
                       <Spinner />
-                      Governed recovery is running…
+                      {GOVERNED_PROGRESS_LABEL}
                     </div>
                   </article>
                 )}
