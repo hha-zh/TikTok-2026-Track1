@@ -1,10 +1,10 @@
-# Agent Launchpad
+# AgentFence
 
 **Adaptive runtime governance for AI agents**
 
 TikTok TechJam 2026 · Track 1 — Agent Infrastructure / Middleware
 
-Agent Launchpad decides at runtime whether a task should stay with the current agent or be
+AgentFence decides at runtime whether a task should stay with the current agent or be
 delegated, and whether work should run directly, serially, or in parallel. It makes those
 choices only after enforcing authority and a shared run budget.
 
@@ -15,7 +15,7 @@ read-only Runtime Governance Inspector.
 > **The key separation:** hard governance defines what is allowed; adaptive routing chooses
 > the best option from that legal set. A routing score can never override a denial.
 
-![Agent Launchpad showing a governed Travel Recovery run with the user-facing answer on the left and runtime evidence on the right](docs/assets/governed-run-inspector.png)
+![AgentFence showing a governed Travel Recovery run with the user-facing answer on the left and runtime evidence on the right](docs/assets/governed-run-inspector.png)
 
 > [!WARNING]
 > This is a proof of concept, not a production security boundary. Use only synthetic data and
@@ -27,7 +27,7 @@ Most agent systems choose a topology in advance. A fixed multi-agent graph waste
 shares context on simple work; a fixed single agent misses useful specialization and
 parallelism on complex work.
 
-Agent Launchpad treats topology as a governed runtime decision:
+AgentFence treats topology as a governed runtime decision:
 
 ```text
 workload declares tasks
